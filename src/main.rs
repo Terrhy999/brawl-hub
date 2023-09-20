@@ -9,14 +9,16 @@ async fn main() -> WebDriverResult<()> {
         .goto("https://aetherhub.com/Decks/Historic-Brawl/")
         .await?;
 
-    let decklist_time_button_group = driver.find(By::Id("year")).await?;
-    decklist_time_button_group.click().await?;
-
-    let decklist_table = driver
-        .find(By::Id("metaHubTable"))
+    let time_button_group = driver
+        .find(By::Css("[aria-label=\"Toolbar with button groups\"]"))
         .await?
-        .find(By::Tag("tbody"))
+        .find_all(By::Tag("label"))
         .await?;
+
+    let year_button = &time_button_group[2];
+    year_button.click().await?;
+
+    println!("{}", year_button.outer_html().await?);
 
     driver.quit().await?;
     Ok(())
