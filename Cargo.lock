@@ -113,6 +113,7 @@ checksum = "b4682ae6287fcf752ecaabbfcc7b6f9b72aa33933dc23a554d853aea8eea8635"
 name = "brawl_hub"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "scraper",
  "thirtyfour",
  "tokio",
