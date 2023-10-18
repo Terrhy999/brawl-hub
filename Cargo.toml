@@ -12,4 +12,5 @@ serde_json = "1.0"
 serde = {version = "1.0.188", features = ["derive"]}
 postgres = "0.19.7"
 sqlx = { version = "0.7", features = [ "runtime-tokio", "uuid", "postgres", "macros" ] }
+uuid = {version = "1.5.0", features = ["v4"]}
 

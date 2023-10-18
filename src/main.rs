@@ -2,14 +2,18 @@
 use serde::{Deserialize, Serialize};
 use serde_json;
 use sqlx::postgres::PgPoolOptions;
-use sqlx::types::Uuid;
+// use sqlx::types::Uuid;
 use std::fs;
+use uuid::Uuid;
 
 fn main() -> () {
-    // get_decklists();
-    let cards = get_legal_cards("src/oracle-cards-20230919090156.json");
+    let decklists = get_decklists(0,40);
+    // println!("{:#?}", decklists);
+    // let cards = get_legal_cards("src/oracle-cards-20230919090156.json");
     // println!("{:#?}", cards);
-    connect_to_db(cards);
+    // connect_to_db(cards);
+    let decks = get_decks(decklists);
+    add_decks(decks);
 }
 
 #[tokio::main]
@@ -43,10 +47,6 @@ async fn connect_to_db(cards: Vec<Card>) {
         .await
         .expect("couldn't create card table");
 
-    // let insert_cards_query = "
-    //   INSERT INTO card (id, oracle_id, name, lang, scryfall_uri, layout, mana_cost, cmc, type_line, oracle_text, colors, color_identity, is_legal, is_commander, rarity)
-    //   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)";
-
     for card in cards {
         sqlx::query_as!(Card, "
         INSERT INTO card (oracle_id, name, lang, scryfall_uri, layout, mana_cost, cmc, type_line, oracle_text, colors, color_identity, is_legal, is_commander, rarity)
@@ -69,29 +69,46 @@ async fn connect_to_db(cards: Vec<Card>) {
 }
 
 #[tokio::main]
-async fn get_decklists() {
-    let json_data = get_decklists_body(0, 40);
-    // println!("{}", json_data);
+async fn add_decks(decks: Vec<Deck>) {
+  let pool = PgPoolOptions::new()
+  .max_connections(5)
+  .connect("postgres://postgres:postgres@localhost/brawlhub")
+  .await
+  .expect("couldn't connect to db");
 
-    let req_client = reqwest::Client::new();
-    let res = req_client
-        .post("https://aetherhub.com/Meta/FetchMetaListAdv?formatId=19")
-        .header("Content-Type", "application/json")
-        .body(json_data)
-        .send()
-        .await
-        .expect("couldn't send Post request");
+  let create_query = "
+    CREATE TABLE IF NOT EXISTS deck (
+      id uuid NOT NULL PRIMARY KEY,
+      deck_id int NOT NULL,
+      url text NOT NULL,
+      username text NOT NULL,
+      date_created bigint NOT NULL,
+      date_updated bigint NOT NULL
+    )";
 
-    println!("Status: {}", res.status());
+  sqlx::query(create_query)
+    .execute(&pool)
+    .await
+    .expect("couldn't create deck table");
 
-    let res_text = res.text().await.expect("couldn't ready response body");
-
-    println!("Response Body: \n{:?}", res_text);
+  for deck in decks {
+    sqlx::query_as!(Deck, "
+    INSERT INTO deck (id, deck_id, url, username, date_created, date_updated)
+    VALUES ($1, $2, $3, $4, $5, $6)",
+    Uuid::parse_str(&deck.id),
+    deck.deck_id,
+    deck.url,
+    deck.username,
+    deck.date_created,
+    deck.date_updated).execute(&pool).await.expect("couldn't insert to deck table");
+  }
 }
 
-fn get_decklists_body(start: i32, length: i32) -> String {
-    let mut request_data: String = String::from(
-        r#"
+#[tokio::main]
+async fn get_decklists(start: i32, length: i32) -> String {
+
+  let mut request_data: String = String::from(
+    r#"
       {
         "draw": 4,
         "columns": [
@@ -206,21 +223,25 @@ fn get_decklists_body(start: i32, length: i32) -> String {
           "value": "",
           "regex": false
         }
-    "#,
-    );
+    "#);
+
     let start = format!(",\n\"start\": {},\n", start);
     let length = format!("\"length\": {}\n}}", length);
-
     request_data.push_str(&start);
     request_data.push_str(&length);
 
-    request_data
-}
+    let req_client = reqwest::Client::new();
+    let res = req_client
+        .post("https://aetherhub.com/Meta/FetchMetaListAdv?formatId=19")
+        .header("Content-Type", "application/json")
+        .body(request_data)
+        .send()
+        .await
+        .expect("couldn't send Post request");
 
-// fn connect_to_db() -> Result<(), postgres::Error> {
-//     let post_client = Client::connect("host=localhost user=postgres", NoTls)?;
-//     Ok(())
-// }
+    res.text().await.expect("couldn't ready response body")
+
+}
 
 fn get_legal_cards(path: &str) -> Vec<Card> {
     let data = fs::read_to_string(path).expect("unable to read JSON");
@@ -244,14 +265,59 @@ fn get_legal_cards(path: &str) -> Vec<Card> {
         })
         .collect();
 
-    let cards: Vec<Card> = filtered_cards
+    filtered_cards
         .into_iter()
         .map(|c| {
             let card = Card::from(c);
             card
         })
-        .collect();
-    cards
+        .collect()
+
+}
+
+fn get_decks(json_data: String) -> Vec<Deck> {
+  let ah_decks: AH_Decks = serde_json::from_str(&json_data).expect("unaple to parse JSON");
+  let ah_decks_vec = ah_decks.metadecks;
+
+  ah_decks_vec.into_iter().map(|d| {let deck = Deck::from(d); deck}).collect()
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct Deck {
+  id: String,
+  ah_deck_id: i32,
+  url: String,
+  username: String,
+  date_created: i64,
+  date_updated: i64,
+}
+
+impl From<AH_Deck> for Deck {
+  fn from(d: AH_Deck) -> Self {
+    Self {
+      id: Uuid::new_v4().to_string(),
+      ah_deck_id: d.id,
+      url: d.url,
+      username: d.username,
+      date_created: d.created,
+      date_updated: d.updated
+    }
+  }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct AH_Decks {
+  metadecks: Vec<AH_Deck>
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct AH_Deck {
+  id: i32,
+  name: String,
+  url: String,
+  username: String,
+  updated: i64,
+  created: i64
 }
 
 #[derive(Serialize, Deserialize, Debug)]
