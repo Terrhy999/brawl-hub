@@ -1,13 +1,71 @@
-use std::{fs, str::FromStr};
-
-use postgres::{Client, NoTls};
+// use postgres::{Client, NoTls};
 use serde::{Deserialize, Serialize};
 use serde_json;
+use sqlx::postgres::PgPoolOptions;
+use sqlx::types::Uuid;
+use std::fs;
 
 fn main() -> () {
     // get_decklists();
     let cards = get_legal_cards("src/oracle-cards-20230919090156.json");
-    println!("{:#?}", cards);
+    // println!("{:#?}", cards);
+    connect_to_db(cards);
+}
+
+#[tokio::main]
+async fn connect_to_db(cards: Vec<Card>) {
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect("postgres://postgres:postgres@localhost/brawlhub")
+        .await
+        .expect("couldn't connect to db");
+
+    let create_query = "
+      CREATE TABLE IF NOT EXISTS card (
+        oracle_id uuid NOT NULL PRIMARY KEY,
+        name text NOT NULL,
+        lang text NOT NULL,
+        scryfall_uri text NOT NULL,
+        layout text NOT NULL,
+        mana_cost text,
+        cmc real NOT NULL,
+        type_line text NOT NULL,
+        oracle_text text,
+        colors char(1)[],
+        color_identity char(1)[] NOT NULL,
+        is_legal bool NOT NULL,
+        is_commander bool NOT NULL,
+        rarity text
+      )";
+
+    sqlx::query(create_query)
+        .execute(&pool)
+        .await
+        .expect("couldn't create card table");
+
+    // let insert_cards_query = "
+    //   INSERT INTO card (id, oracle_id, name, lang, scryfall_uri, layout, mana_cost, cmc, type_line, oracle_text, colors, color_identity, is_legal, is_commander, rarity)
+    //   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)";
+
+    for card in cards {
+        sqlx::query_as!(Card, "
+        INSERT INTO card (oracle_id, name, lang, scryfall_uri, layout, mana_cost, cmc, type_line, oracle_text, colors, color_identity, is_legal, is_commander, rarity)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)", 
+        Uuid::parse_str(&card.oracle_id).expect("uuid parsed wrong"), 
+        card.name, 
+        card.lang, 
+        card.scryfall_uri, 
+        card.layout, 
+        card.mana_cost, 
+        card.cmc, 
+        card.type_line, 
+        card.oracle_text, 
+        card.colors.as_deref(), 
+        &card.color_identity, 
+        card.is_legal, 
+        card.is_commander, 
+        card.rarity).execute(&pool).await.expect("couldn't insert");
+    }
 }
 
 #[tokio::main]
@@ -159,10 +217,10 @@ fn get_decklists_body(start: i32, length: i32) -> String {
     request_data
 }
 
-fn connect_to_db() -> Result<(), postgres::Error> {
-    let post_client = Client::connect("host=localhost user=postgres", NoTls)?;
-    Ok(())
-}
+// fn connect_to_db() -> Result<(), postgres::Error> {
+//     let post_client = Client::connect("host=localhost user=postgres", NoTls)?;
+//     Ok(())
+// }
 
 fn get_legal_cards(path: &str) -> Vec<Card> {
     let data = fs::read_to_string(path).expect("unable to read JSON");
@@ -198,13 +256,13 @@ fn get_legal_cards(path: &str) -> Vec<Card> {
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Card {
-    id: String,
+    // id: String,
     oracle_id: String,
     name: String,
     lang: String,
     scryfall_uri: String,
     layout: String,
-    image_uris: Option<CardImages>,
+    // image_uris: Option<CardImages>,
     mana_cost: Option<String>,
     cmc: f32,
     type_line: String,
@@ -218,7 +276,7 @@ struct Card {
 
 #[derive(Serialize, Deserialize, Debug)]
 struct ScryfallCard {
-    id: String,
+    // id: String,
     oracle_id: String,
     name: String,
     lang: String,
@@ -238,14 +296,14 @@ struct ScryfallCard {
 impl From<ScryfallCard> for Card {
     fn from(c: ScryfallCard) -> Self {
         Self {
-            id: c.id,
+            // id: c.id,
             oracle_id: c.oracle_id,
             name: c.name,
             mana_cost: c.mana_cost,
             lang: c.lang,
             scryfall_uri: c.scryfall_uri,
             layout: c.layout,
-            image_uris: c.image_uris,
+            // image_uris: c.image_uris,
             cmc: c.cmc,
             type_line: c.type_line.clone(),
             oracle_text: c.oracle_text,
