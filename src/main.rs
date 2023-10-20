@@ -7,8 +7,8 @@ use std::fs;
 use uuid::Uuid;
 
 fn main() -> () {
-    let decks = get_aetherhub_decks(0, 40);
-    add_decks(decks);
+    save_cards_to_db_from_scryfall();
+    add_decks(get_aetherhub_decks(0, 40));
 }
 
 #[tokio::main]
@@ -60,7 +60,7 @@ async fn save_cards_to_db_from_scryfall() {
 
     let pool = PgPoolOptions::new()
         .max_connections(5)
-        .connect("postgres://postgres:maco@localhost/brawlhub")
+        .connect("postgres://postgres:postgres@localhost/brawlhub")
         .await
         .expect("couldn't connect to db");
 
@@ -147,8 +147,6 @@ async fn add_decks(decks: Vec<Deck>) {
         )
         .execute(&pool)
         .await;
-
-        println!("{:#?}", query_result);
     }
 }
 
@@ -384,7 +382,7 @@ struct ScryfallCard {
     color_identity: Vec<String>,
     legalities: Legalaties,
     rarity: String,
-    games: Vec<String>
+    games: Vec<String>,
 }
 
 impl From<ScryfallCard> for Card {

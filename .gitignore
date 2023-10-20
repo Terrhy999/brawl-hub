@@ -1,5 +1,5 @@
 /target
-oracle-cards-20230919090156.json
+oracle-cards.json
 .env
 pgdata
 Cargo.lock
