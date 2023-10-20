@@ -14,6 +14,27 @@ fn main() -> () {
 }
 
 #[tokio::main]
+async fn get_decklist(deck: Deck) -> Vec<AetherhubDecklistCard> {
+    let req_client = reqwest::Client::new();
+    serde_json::from_str::<AetherHubDecklistResponse>(
+        req_client
+            .get(format!(
+                "https://aetherhub.com/Deck/FetchMtgaDeckJson?deckId={}",
+                deck.ah_deck_id
+            ))
+            .send()
+            .await
+            .expect("couldn't fetch decklist")
+            .text()
+            .await
+            .expect("couldn't read response body")
+            .as_str(),
+    )
+    .expect("couldn't parse aetherhub decklist response")
+    .converted_deck
+}
+
+#[tokio::main]
 async fn add_cards(cards: Vec<Card>) {
     let pool = PgPoolOptions::new()
         .max_connections(5)
@@ -242,11 +263,12 @@ async fn get_aetherhub_decks(start: i32, length: i32) -> Vec<Deck> {
         .body(request_data)
         .send()
         .await
-        .expect("couldn't send Post request");
+        .expect("couldn't send Post request")
+        .text()
+        .await
+        .expect("couldn't read response body");
 
-    let res_json = res.text().await.expect("couldn't read response body");
-
-    serde_json::from_str::<AetherHubResponse>(&res_json)
+    serde_json::from_str::<AetherHubDeckResponse>(&res)
         .expect("unable to parse JSON")
         .metadecks
         .into_iter()
@@ -286,6 +308,17 @@ fn get_legal_cards(path: &str) -> Vec<Card> {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+struct AetherHubDecklistResponse {
+    converted_deck: Vec<AetherhubDecklistCard>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct AetherhubDecklistCard {
+    card_id: i32,
+    quantity: i32,
+    name: String,
+}
+#[derive(Serialize, Deserialize, Debug)]
 struct Deck {
     id: String,
     ah_deck_id: i32,
@@ -309,7 +342,7 @@ impl From<AetherHubDeck> for Deck {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-struct AetherHubResponse {
+struct AetherHubDeckResponse {
     metadecks: Vec<AetherHubDeck>,
 }
 
