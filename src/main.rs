@@ -280,7 +280,7 @@ fn get_legal_cards(path: &str) -> Vec<Card> {
 }
 
 fn get_decks(json_data: String) -> Vec<Deck> {
-    let ah_decks: AH_Decks = serde_json::from_str(&json_data).expect("unaple to parse JSON");
+    let ah_decks: AetherHubResponse = serde_json::from_str(&json_data).expect("unaple to parse JSON");
     let ah_decks_vec = ah_decks.metadecks;
 
     ah_decks_vec
@@ -302,8 +302,8 @@ struct Deck {
     date_updated: i64,
 }
 
-impl From<AH_Deck> for Deck {
-    fn from(d: AH_Deck) -> Self {
+impl From<AetherHubDeck> for Deck {
+    fn from(d: AetherHubDeck) -> Self {
         Self {
             id: Uuid::new_v4().to_string(),
             ah_deck_id: d.id,
@@ -316,12 +316,12 @@ impl From<AH_Deck> for Deck {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-struct AH_Decks {
-    metadecks: Vec<AH_Deck>,
+struct AetherHubResponse {
+    metadecks: Vec<AetherHubDeck>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-struct AH_Deck {
+struct AetherHubDeck {
     id: i32,
     name: String,
     url: String,
