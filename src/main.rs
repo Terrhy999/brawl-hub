@@ -1,23 +1,21 @@
 // use postgres::{Client, NoTls};
 use serde::{Deserialize, Serialize};
 use serde_json;
-use sqlx::postgres::PgPoolOptions;
+use sqlx::postgres::{PgDatabaseError, PgPoolOptions, PgQueryResult};
 // use sqlx::types::Uuid;
 use std::fs;
 use uuid::Uuid;
 
 fn main() -> () {
     let decklists = get_decklists(0, 40);
-    // println!("{:#?}", decklists);
-    let cards = get_legal_cards("src/oracle-cards-20230919090156.json");
-    // println!("{:#?}", cards);
-    connect_to_db(cards);
+    // let cards = get_legal_cards("src/oracle-cards-20230919090156.json");
+    // add_cards(cards);
     let decks = get_decks(decklists);
     add_decks(decks);
 }
 
 #[tokio::main]
-async fn connect_to_db(cards: Vec<Card>) {
+async fn add_cards(cards: Vec<Card>) {
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect("postgres://postgres:postgres@localhost/brawlhub")
@@ -79,7 +77,7 @@ async fn add_decks(decks: Vec<Deck>) {
     let create_query = "
     CREATE TABLE IF NOT EXISTS deck (
       id uuid NOT NULL PRIMARY KEY,
-      deck_id int NOT NULL,
+      deck_id int UNIQUE,
       url text NOT NULL,
       username text NOT NULL,
       date_created bigint NOT NULL,
@@ -92,11 +90,12 @@ async fn add_decks(decks: Vec<Deck>) {
         .expect("couldn't create deck table");
 
     for deck in decks {
-        sqlx::query_as!(
+        let query_result: Result<PgQueryResult, _> = sqlx::query_as!(
             Deck,
             "
       INSERT INTO deck (id, deck_id, url, username, date_created, date_updated)
-      VALUES ($1, $2, $3, $4, $5, $6)",
+      VALUES ($1, $2, $3, $4, $5, $6)
+      ON CONFLICT (deck_id) DO NOTHING",
             Uuid::parse_str(&deck.id).expect("uuid parsed wrong"),
             deck.ah_deck_id,
             deck.url,
@@ -105,8 +104,9 @@ async fn add_decks(decks: Vec<Deck>) {
             deck.date_updated
         )
         .execute(&pool)
-        .await
-        .expect("couldn't insert to deck table");
+        .await;
+
+        println!("{:#?}", query_result);
     }
 }
 
@@ -396,14 +396,9 @@ impl From<ScryfallCard> for Card {
 }
 
 fn is_commander(type_line: String) -> bool {
-    if (type_line.to_lowercase().find("legendary").is_some()
+    (type_line.to_lowercase().find("legendary").is_some()
         && type_line.to_lowercase().find("creature").is_some())
         || type_line.to_lowercase().find("planeswalker").is_some()
-    {
-        true
-    } else {
-        false
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
