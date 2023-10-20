@@ -18,7 +18,7 @@ fn main() -> () {
 async fn add_cards(cards: Vec<Card>) {
     let pool = PgPoolOptions::new()
         .max_connections(5)
-        .connect("postgres://postgres:postgres@localhost/brawlhub")
+        .connect("postgres://postgres:maco@localhost/brawlhub")
         .await
         .expect("couldn't connect to db");
 
@@ -371,9 +371,9 @@ struct ScryfallCard {
 
 impl From<ScryfallCard> for Card {
     fn from(c: ScryfallCard) -> Self {
-        let is_commander = (type_line.to_lowercase().find("legendary").is_some()
-            && type_line.to_lowercase().find("creature").is_some())
-            || type_line.to_lowercase().find("planeswalker").is_some();
+        let is_commander = (c.type_line.to_lowercase().find("legendary").is_some()
+            && c.type_line.to_lowercase().find("creature").is_some())
+            || c.type_line.to_lowercase().find("planeswalker").is_some();
 
         Self {
             // id: c.id,
