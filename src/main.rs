@@ -246,16 +246,11 @@ async fn get_aetherhub_decks(start: i32, length: i32) -> Vec<Deck> {
 
     let res_json = res.text().await.expect("couldn't read response body");
 
-    let ah_decks = serde_json::from_str::<AetherHubResponse>(&res_json)
+    serde_json::from_str::<AetherHubResponse>(&res_json)
         .expect("unable to parse JSON")
-        .metadecks;
-
-    ah_decks
+        .metadecks
         .into_iter()
-        .map(|d| {
-            let deck = Deck::from(d);
-            deck
-        })
+        .map(|d| Deck::from(d))
         .collect()
 }
 
