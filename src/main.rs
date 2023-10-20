@@ -7,10 +7,9 @@ use std::fs;
 use uuid::Uuid;
 
 fn main() -> () {
-    let decklists = get_decklists(0, 40);
+    let decks = get_aetherhub_decks(0, 40);
     // let cards = get_legal_cards("src/oracle-cards-20230919090156.json");
     // add_cards(cards);
-    let decks = get_decks(decklists);
     add_decks(decks);
 }
 
@@ -111,7 +110,7 @@ async fn add_decks(decks: Vec<Deck>) {
 }
 
 #[tokio::main]
-async fn get_decklists(start: i32, length: i32) -> String {
+async fn get_aetherhub_decks(start: i32, length: i32) -> Vec<Deck> {
     let mut request_data: String = String::from(
         r#"
       {
@@ -245,7 +244,19 @@ async fn get_decklists(start: i32, length: i32) -> String {
         .await
         .expect("couldn't send Post request");
 
-    res.text().await.expect("couldn't ready response body")
+    let res_json = res.text().await.expect("couldn't read response body");
+
+    let ah_decks = serde_json::from_str::<AetherHubResponse>(&res_json)
+        .expect("unable to parse JSON")
+        .metadecks;
+
+    ah_decks
+        .into_iter()
+        .map(|d| {
+            let deck = Deck::from(d);
+            deck
+        })
+        .collect()
 }
 
 fn get_legal_cards(path: &str) -> Vec<Card> {
@@ -275,19 +286,6 @@ fn get_legal_cards(path: &str) -> Vec<Card> {
         .map(|c| {
             let card = Card::from(c);
             card
-        })
-        .collect()
-}
-
-fn get_decks(json_data: String) -> Vec<Deck> {
-    let ah_decks: AetherHubResponse = serde_json::from_str(&json_data).expect("unaple to parse JSON");
-    let ah_decks_vec = ah_decks.metadecks;
-
-    ah_decks_vec
-        .into_iter()
-        .map(|d| {
-            let deck = Deck::from(d);
-            deck
         })
         .collect()
 }
