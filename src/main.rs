@@ -16,7 +16,13 @@ fn main() -> () {
 #[tokio::main]
 async fn get_decklist(deck: Deck) -> Vec<CardInDeck> {
     let req_client = reqwest::Client::new();
-    serde_json::from_str::<AetherHubDecklistResponse>(
+
+    #[derive(Serialize, Deserialize, Debug)]
+    struct Response {
+        convertedDeck: Vec<CardInDeck>,
+    }
+
+    serde_json::from_str::<Response>(
         req_client
             .get(format!(
                 "https://aetherhub.com/Deck/FetchMtgaDeckJson?deckId={}",
@@ -290,7 +296,12 @@ async fn get_aetherhub_decks(start: i32, length: i32) -> Vec<Deck> {
         .await
         .expect("couldn't read response body");
 
-    serde_json::from_str::<AetherHubDeckResponse>(&res)
+    #[derive(Serialize, Deserialize, Debug)]
+    struct Response {
+        metadecks: Vec<AetherHubDeck>,
+    }
+
+    serde_json::from_str::<Response>(&res)
         .expect("unable to parse JSON")
         .metadecks
         .into_iter()
