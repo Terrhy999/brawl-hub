@@ -371,6 +371,10 @@ struct ScryfallCard {
 
 impl From<ScryfallCard> for Card {
     fn from(c: ScryfallCard) -> Self {
+        let is_commander = (type_line.to_lowercase().find("legendary").is_some()
+            && type_line.to_lowercase().find("creature").is_some())
+            || type_line.to_lowercase().find("planeswalker").is_some();
+
         Self {
             // id: c.id,
             oracle_id: c.oracle_id,
@@ -390,15 +394,9 @@ impl From<ScryfallCard> for Card {
                 "legal" => true,
                 _ => false,
             },
-            is_commander: is_commander(c.type_line),
+            is_commander,
         }
     }
-}
-
-fn is_commander(type_line: String) -> bool {
-    (type_line.to_lowercase().find("legendary").is_some()
-        && type_line.to_lowercase().find("creature").is_some())
-        || type_line.to_lowercase().find("planeswalker").is_some()
 }
 
 #[derive(Serialize, Deserialize, Debug)]
