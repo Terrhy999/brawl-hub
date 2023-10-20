@@ -34,7 +34,7 @@ async fn get_decklist(deck: Deck) -> Vec<AetherhubDecklistCard> {
 
 #[tokio::main]
 async fn save_cards_to_db_from_scryfall() {
-    let data = fs::read_to_string("oracle-cards-20230919090156.json").expect("unable to read JSON");
+    let data = fs::read_to_string("oracle-cards.json").expect("unable to read JSON");
     let scryfall_cards: Vec<ScryfallCard> =
         serde_json::from_str(&data).expect("unable to parse JSON");
 
