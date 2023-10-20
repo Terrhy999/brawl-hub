@@ -9,12 +9,13 @@ use uuid::Uuid;
 const DATABASE_URL: &str = "postgres://postgres:postgres@localhost/brawlhub";
 
 fn main() -> () {
-    save_cards_to_db_from_scryfall();
-    add_decks(get_aetherhub_decks(0, 40));
+    // save_cards_to_db_from_scryfall();
+    // add_decks(get_aetherhub_decks(0, 40));
+    get_card_ids(get_decklist(&get_aetherhub_decks(0, 40)[0]))
 }
 
 #[tokio::main]
-async fn get_decklist(deck: Deck) -> Vec<CardInDeck> {
+async fn get_decklist(deck: &Deck) -> Vec<CardInDeck> {
     let req_client = reqwest::Client::new();
 
     #[derive(Serialize, Deserialize, Debug)]
@@ -37,7 +38,36 @@ async fn get_decklist(deck: Deck) -> Vec<CardInDeck> {
             .as_str(),
     )
     .expect("couldn't parse aetherhub decklist response")
-    .converted_deck
+    .convertedDeck
+    .into_iter()
+    .filter(|card| card.quantity.is_some())
+    .collect()
+}
+
+#[tokio::main]
+async fn get_card_ids(cards: Vec<CardInDeck>) {
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(DATABASE_URL)
+        .await
+        .expect("uh oh stinky");
+
+    let card_ids = cards.iter().map(|card| async {
+        #[derive(Debug)]
+        struct OracleId {
+            oracle_id: Uuid,
+        }
+        sqlx::query_as!(
+            OracleId,
+            "SELECT oracle_id FROM card WHERE name = $1",
+            card.name
+        )
+        .fetch_optional(&pool)
+        .await
+        .expect("")
+    });
+
+    println!("{:#?}", card_ids);
 }
 
 #[tokio::main]
@@ -50,19 +80,10 @@ async fn save_cards_to_db_from_scryfall() {
     let cards: Vec<Card> = scryfall_cards
         .into_iter()
         .filter(|card| match card.layout.as_str() {
-            "planar" => false,
-            "scheme" => false,
-            "vanguard" => false,
             "token" => false,
-            "double_faced_token" => false,
-            "emblem" => false,
-            "augment" => false,
-            "host" => false,
-            "art_series" => false,
-            "reversible_card" => false,
             _ => true,
         })
-        .filter(|card| card.games.contains(&String::from("arena")))
+        .filter(|card| card.legalities.historicbrawl != "not_legal")
         .map(|c| Card::from(c))
         .collect();
 
@@ -310,13 +331,8 @@ async fn get_aetherhub_decks(start: i32, length: i32) -> Vec<Deck> {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-struct AetherHubDecklistResponse {
-    converted_deck: Vec<CardInDeck>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
 struct CardInDeck {
-    quantity: i32,
+    quantity: Option<i32>,
     name: String,
 }
 #[derive(Serialize, Deserialize, Debug)]
@@ -340,11 +356,6 @@ impl From<AetherHubDeck> for Deck {
             date_updated: d.updated,
         }
     }
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct AetherHubDeckResponse {
-    metadecks: Vec<AetherHubDeck>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
