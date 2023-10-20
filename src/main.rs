@@ -8,8 +8,6 @@ use uuid::Uuid;
 
 fn main() -> () {
     let decks = get_aetherhub_decks(0, 40);
-    // let cards = get_legal_cards("src/oracle-cards-20230919090156.json");
-    // add_cards(cards);
     add_decks(decks);
 }
 
@@ -35,7 +33,30 @@ async fn get_decklist(deck: Deck) -> Vec<AetherhubDecklistCard> {
 }
 
 #[tokio::main]
-async fn add_cards(cards: Vec<Card>) {
+async fn save_cards_to_db_from_scryfall() {
+    let data = fs::read_to_string("oracle-cards-20230919090156.json").expect("unable to read JSON");
+    let scryfall_cards: Vec<ScryfallCard> =
+        serde_json::from_str(&data).expect("unable to parse JSON");
+
+    // Find out why I have to add a static type to this
+    let cards: Vec<Card> = scryfall_cards
+        .into_iter()
+        .filter(|card| match card.layout.as_str() {
+            "planar" => false,
+            "scheme" => false,
+            "vanguard" => false,
+            "token" => false,
+            "double_faced_token" => false,
+            "emblem" => false,
+            "augment" => false,
+            "host" => false,
+            "art_series" => false,
+            "reversible_card" => false,
+            _ => true,
+        })
+        .map(|c| Card::from(c))
+        .collect();
+
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect("postgres://postgres:maco@localhost/brawlhub")
@@ -273,37 +294,6 @@ async fn get_aetherhub_decks(start: i32, length: i32) -> Vec<Deck> {
         .metadecks
         .into_iter()
         .map(|d| Deck::from(d))
-        .collect()
-}
-
-fn get_legal_cards(path: &str) -> Vec<Card> {
-    let data = fs::read_to_string(path).expect("unable to read JSON");
-    let scryfall_cards: Vec<ScryfallCard> =
-        serde_json::from_str(&data).expect("unable to parse JSON");
-
-    let filtered_cards: Vec<ScryfallCard> = scryfall_cards
-        .into_iter()
-        .filter(|card| match card.layout.as_str() {
-            "planar" => false,
-            "scheme" => false,
-            "vanguard" => false,
-            "token" => false,
-            "double_faced_token" => false,
-            "emblem" => false,
-            "augment" => false,
-            "host" => false,
-            "art_series" => false,
-            "reversible_card" => false,
-            _ => true,
-        })
-        .collect();
-
-    filtered_cards
-        .into_iter()
-        .map(|c| {
-            let card = Card::from(c);
-            card
-        })
         .collect()
 }
 
