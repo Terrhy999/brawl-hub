@@ -6,13 +6,15 @@ use sqlx::postgres::{PgDatabaseError, PgPoolOptions, PgQueryResult};
 use std::fs;
 use uuid::Uuid;
 
+const DATABASE_URL: &str = "postgres://postgres:postgres@localhost/brawlhub";
+
 fn main() -> () {
     save_cards_to_db_from_scryfall();
     add_decks(get_aetherhub_decks(0, 40));
 }
 
 #[tokio::main]
-async fn get_decklist(deck: Deck) -> Vec<AetherhubDecklistCard> {
+async fn get_decklist(deck: Deck) -> Vec<CardInDeck> {
     let req_client = reqwest::Client::new();
     serde_json::from_str::<AetherHubDecklistResponse>(
         req_client
@@ -60,7 +62,7 @@ async fn save_cards_to_db_from_scryfall() {
 
     let pool = PgPoolOptions::new()
         .max_connections(5)
-        .connect("postgres://postgres:postgres@localhost/brawlhub")
+        .connect(DATABASE_URL)
         .await
         .expect("couldn't connect to db");
 
@@ -112,7 +114,7 @@ async fn save_cards_to_db_from_scryfall() {
 async fn add_decks(decks: Vec<Deck>) {
     let pool = PgPoolOptions::new()
         .max_connections(5)
-        .connect("postgres://postgres:postgres@localhost/brawlhub")
+        .connect(DATABASE_URL)
         .await
         .expect("couldn't connect to db");
 
@@ -298,12 +300,11 @@ async fn get_aetherhub_decks(start: i32, length: i32) -> Vec<Deck> {
 
 #[derive(Serialize, Deserialize, Debug)]
 struct AetherHubDecklistResponse {
-    converted_deck: Vec<AetherhubDecklistCard>,
+    converted_deck: Vec<CardInDeck>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-struct AetherhubDecklistCard {
-    card_id: i32,
+struct CardInDeck {
     quantity: i32,
     name: String,
 }
