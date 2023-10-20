@@ -2,3 +2,4 @@
 src/oracle-cards-20230919090156.json
 .env
 pgdata
+Cargo.lock
