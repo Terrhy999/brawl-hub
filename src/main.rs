@@ -54,6 +54,7 @@ async fn save_cards_to_db_from_scryfall() {
             "reversible_card" => false,
             _ => true,
         })
+        .filter(|card| card.games.contains(&String::from("arena")))
         .map(|c| Card::from(c))
         .collect();
 
@@ -383,6 +384,7 @@ struct ScryfallCard {
     color_identity: Vec<String>,
     legalities: Legalaties,
     rarity: String,
+    games: Vec<String>
 }
 
 impl From<ScryfallCard> for Card {
