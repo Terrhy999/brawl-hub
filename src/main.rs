@@ -3,35 +3,33 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use sqlx::postgres::{PgDatabaseError, PgPoolOptions, PgQueryResult};
 // use sqlx::types::Uuid;
+use futures::future::join_all;
 use std::fs;
 use uuid::Uuid;
-use futures::future::join_all;
 
 const DATABASE_URL: &str = "postgres://postgres:postgres@localhost/brawlhub";
 
 fn main() -> () {
     // save_cards_to_db_from_scryfall();
     // add_decks(get_aetherhub_decks(0, 40));
-    get_card_ids(get_decklist(&get_aetherhub_decks(0, 40)[0]))
+    // get_card_ids(get_decklist(&get_aetherhub_decks(0, 40)[0]))
+    add_deck_to_db(&get_aetherhub_decks(0, 40)[0]);
 }
 
 #[tokio::main]
-async fn get_decklist(deck: &Deck) -> Vec<CardInDeck> {
+async fn add_deck_to_db(deck: &Deck) {
     let req_client = reqwest::Client::new();
 
     #[derive(Serialize, Deserialize, Debug)]
     struct Response {
         convertedDeck: Vec<CardInDeck>,
     }
-    
-    // println!("{}", deck.ah_deck_id);
 
-    serde_json::from_str::<Response>(
+    let card_ids: Vec<CardInDeck> = serde_json::from_str::<Response>(
         req_client
             .get(format!(
                 "https://aetherhub.com/Deck/FetchMtgaDeckJson?deckId={}",
-                // deck.ah_deck_id
-                940216
+                deck.ah_deck_id // 940216
             ))
             .send()
             .await
@@ -45,18 +43,15 @@ async fn get_decklist(deck: &Deck) -> Vec<CardInDeck> {
     .convertedDeck
     .into_iter()
     .filter(|card| card.quantity.is_some())
-    .collect()
-}
+    .collect();
 
-#[tokio::main]
-async fn get_card_ids(cards: Vec<CardInDeck>) {
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(DATABASE_URL)
         .await
         .expect("uh oh stinky");
 
-    let card_ids = cards.iter().map(|card| async {
+    let card_ids = card_ids.iter().map(|card| async {
         let double_sided_card_suffix = format!("%{} // %", card.name);
         let alchemy_prefix = format!("%{}", card.name);
         #[derive(Debug)]
@@ -67,12 +62,12 @@ async fn get_card_ids(cards: Vec<CardInDeck>) {
         sqlx::query_as!(
             OracleId,
             "SELECT oracle_id, name 
-            FROM card 
-            WHERE name LIKE $1 
-            UNION
-            SELECT oracle_id, name 
-            FROM card 
-            WHERE name LIKE $2",
+          FROM card 
+          WHERE name LIKE $1 
+          UNION
+          SELECT oracle_id, name 
+          FROM card 
+          WHERE name LIKE $2",
             alchemy_prefix,
             double_sided_card_suffix,
         )
@@ -80,14 +75,14 @@ async fn get_card_ids(cards: Vec<CardInDeck>) {
         .await
         .expect("")
     });
-    
+
     let card_ids = join_all(card_ids).await;
-    println!("{:#?}", card_ids);
-    
+    // println!("{:#?}", card_ids);
+
     for card in card_ids {
         match card {
             Some(_) => (),
-            None => println!("none!")
+            None => println!("none!"),
         }
     }
 }
