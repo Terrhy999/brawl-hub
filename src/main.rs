@@ -58,6 +58,12 @@ async fn add_deck_to_db(deck: &Deck) {
         .await
         .expect("uh oh stinky");
 
+    struct newCard {
+        oracle_id: Option<Uuid>,
+        name: Option<String>,
+        quantity: Option<String>,
+    }
+
     let card_ids = aetherhub_decklist.iter().map(|card| async {
         let double_sided_card_suffix = format!("%{} // %", card.name);
         let alchemy_prefix = format!("%{}", card.name);
@@ -66,7 +72,7 @@ async fn add_deck_to_db(deck: &Deck) {
             oracle_id: Option<Uuid>,
             name: Option<String>,
         }
-        sqlx::query_as!(
+        let oracle_id = sqlx::query_as!(
             OracleId,
             "SELECT oracle_id, name 
           FROM card 
@@ -80,18 +86,37 @@ async fn add_deck_to_db(deck: &Deck) {
         )
         .fetch_optional(&pool)
         .await
-        .expect("")
+        .expect("");
+        oracle_id
     });
 
     let card_ids = join_all(card_ids).await;
     println!("{:#?}", card_ids);
 
-    for card in card_ids {
-        match card {
-            Some(_) => (),
-            None => println!("none!"),
-        }
+    #[derive(Debug)]
+    struct CombinedCardData {
+        oracle_id: Option<Uuid>,
+        name: String,
+        quantity: Option<i32>,
     }
+
+    let combined_card_data: Vec<CombinedCardData> = aetherhub_decklist
+        .into_iter()
+        .zip(card_ids)
+        .map(|(decklist_card, card_id)| {
+            let name = decklist_card.name.clone();
+            let quantity = decklist_card.quantity;
+            let oracle_id = card_id.and_then(|card| card.oracle_id);
+
+            CombinedCardData {
+                oracle_id,
+                name,
+                quantity,
+            }
+        })
+        .collect();
+
+    println!("{:#?}", combined_card_data);
 }
 
 #[tokio::main]
