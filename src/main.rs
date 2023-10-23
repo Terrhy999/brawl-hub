@@ -58,12 +58,6 @@ async fn add_deck_to_db(deck: &Deck) {
         .await
         .expect("uh oh stinky");
 
-    struct yo {
-        oracle_id: Option<Uuid>,
-        name: Option<String>,
-        quantity: Option<i32>,
-    }
-
     let card_ids = aetherhub_decklist.iter().map(|card| async {
         let double_sided_card_suffix = format!("%{} // %", card.name);
         let alchemy_prefix = format!("%{}", card.name);
@@ -72,7 +66,7 @@ async fn add_deck_to_db(deck: &Deck) {
             oracle_id: Option<Uuid>,
             name: Option<String>,
         }
-        let c = sqlx::query_as!(
+        sqlx::query_as!(
             OracleId,
             "SELECT oracle_id, name 
           FROM card 
@@ -87,19 +81,17 @@ async fn add_deck_to_db(deck: &Deck) {
         .fetch_optional(&pool)
         .await
         .expect("")
-        .into_iter()
-        .map(|y| yo {oracle_id: y.oracle_id, name: y.name, quantity: card.quantity});
     });
 
     let card_ids = join_all(card_ids).await;
     println!("{:#?}", card_ids);
 
-    // for card in card_ids {
-    //     match card {
-    //         Some(_) => (),
-    //         None => println!("none!"),
-    //     }
-    // }
+    for card in card_ids {
+        match card {
+            Some(_) => (),
+            None => println!("none!"),
+        }
+    }
 }
 
 #[tokio::main]
