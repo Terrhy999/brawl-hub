@@ -11,7 +11,7 @@ const DATABASE_URL: &str = "postgres://postgres:postgres@localhost/brawlhub";
 
 fn main() -> () {
     // save_cards_to_db_from_scryfall();
-    // add_decks(get_aetherhub_decks(0, 40));
+    add_decks(get_aetherhub_decks(0, 40));
     // get_card_ids(get_decklist(&get_aetherhub_decks(0, 40)[0]))
     add_deck_to_db(&get_aetherhub_decks(0, 40)[0]);
 }
@@ -91,7 +91,7 @@ async fn add_deck_to_db(deck: &Deck) {
     });
 
     let card_ids = join_all(card_ids).await;
-    println!("{:#?}", card_ids);
+    // println!("{:#?}", card_ids);
 
     #[derive(Debug)]
     struct CombinedCardData {
@@ -116,7 +116,31 @@ async fn add_deck_to_db(deck: &Deck) {
         })
         .collect();
 
-    println!("{:#?}", combined_card_data);
+    sqlx::query!(
+        "CREATE TABLE IF NOT EXISTS decklist (
+        oracle_id uuid REFERENCES card(oracle_id),
+        deck_id uuid REFERENCES deck(id),
+        quantity integer NOT NULL,
+        PRIMARY KEY (oracle_id, deck_id)
+    )",
+    )
+    .execute(&pool)
+    .await
+    .expect("create decklist table failed");
+
+    for card in combined_card_data {
+        let deck_id = Uuid::parse_str(deck.id.as_str()).expect("uuid parsed wrong");
+        println!("{}", deck_id);
+        sqlx::query!(
+            "INSERT INTO decklist (oracle_id, deck_id, quantity) VALUES ($1, $2, $3)",
+            card.oracle_id,
+            deck_id,
+            card.quantity
+        )
+        .execute(&pool)
+        .await
+        .expect("insert card failed");
+    }
 }
 
 #[tokio::main]
@@ -210,7 +234,8 @@ async fn add_decks(decks: Vec<Deck>) {
         .expect("couldn't create deck table");
 
     for deck in decks {
-        let query_result: Result<PgQueryResult, _> = sqlx::query_as!(
+        println!("{}", deck.id);
+        sqlx::query_as!(
             Deck,
             "
       INSERT INTO deck (id, deck_id, url, username, date_created, date_updated)
@@ -224,7 +249,8 @@ async fn add_decks(decks: Vec<Deck>) {
             deck.date_updated
         )
         .execute(&pool)
-        .await;
+        .await
+        .expect("insert deck into db failed");
     }
 }
 
@@ -392,6 +418,7 @@ struct Deck {
 impl From<AetherHubDeck> for Deck {
     fn from(d: AetherHubDeck) -> Self {
         Self {
+            //Generating a new uuid when converting from AetherHubDeck to Deck needs to change
             id: Uuid::new_v4().to_string(),
             ah_deck_id: d.id,
             url: d.url,
