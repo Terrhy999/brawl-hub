@@ -5,6 +5,7 @@ use sqlx::postgres::{PgDatabaseError, PgPoolOptions, PgQueryResult};
 // use sqlx::types::Uuid;
 use std::fs;
 use uuid::Uuid;
+use futures::future::join_all;
 
 const DATABASE_URL: &str = "postgres://postgres:postgres@localhost/brawlhub";
 
@@ -22,12 +23,15 @@ async fn get_decklist(deck: &Deck) -> Vec<CardInDeck> {
     struct Response {
         convertedDeck: Vec<CardInDeck>,
     }
+    
+    // println!("{}", deck.ah_deck_id);
 
     serde_json::from_str::<Response>(
         req_client
             .get(format!(
                 "https://aetherhub.com/Deck/FetchMtgaDeckJson?deckId={}",
-                deck.ah_deck_id
+                // deck.ah_deck_id
+                940216
             ))
             .send()
             .await
@@ -53,21 +57,39 @@ async fn get_card_ids(cards: Vec<CardInDeck>) {
         .expect("uh oh stinky");
 
     let card_ids = cards.iter().map(|card| async {
+        let double_sided_card_suffix = format!("%{} // %", card.name);
+        let alchemy_prefix = format!("%{}", card.name);
         #[derive(Debug)]
         struct OracleId {
-            oracle_id: Uuid,
+            oracle_id: Option<Uuid>,
+            name: Option<String>,
         }
         sqlx::query_as!(
             OracleId,
-            "SELECT oracle_id FROM card WHERE name = $1",
-            card.name
+            "SELECT oracle_id, name 
+            FROM card 
+            WHERE name LIKE $1 
+            UNION
+            SELECT oracle_id, name 
+            FROM card 
+            WHERE name LIKE $2",
+            alchemy_prefix,
+            double_sided_card_suffix,
         )
         .fetch_optional(&pool)
         .await
         .expect("")
     });
-
+    
+    let card_ids = join_all(card_ids).await;
     println!("{:#?}", card_ids);
+    
+    for card in card_ids {
+        match card {
+            Some(_) => (),
+            None => println!("none!")
+        }
+    }
 }
 
 #[tokio::main]
