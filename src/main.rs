@@ -21,11 +21,18 @@ async fn add_deck_to_db(deck: &Deck) {
     let req_client = reqwest::Client::new();
 
     #[derive(Serialize, Deserialize, Debug)]
-    struct Response {
-        convertedDeck: Vec<CardInDeck>,
+    struct CardInDeck {
+        quantity: Option<i32>,
+        name: String,
     }
 
-    let card_ids: Vec<CardInDeck> = serde_json::from_str::<Response>(
+    #[derive(Serialize, Deserialize, Debug)]
+    #[serde(rename_all = "camelCase")]
+    struct Response {
+        converted_deck: Vec<CardInDeck>,
+    }
+
+    let decklist: Vec<CardInDeck> = serde_json::from_str::<Response>(
         req_client
             .get(format!(
                 "https://aetherhub.com/Deck/FetchMtgaDeckJson?deckId={}",
@@ -40,7 +47,7 @@ async fn add_deck_to_db(deck: &Deck) {
             .as_str(),
     )
     .expect("couldn't parse aetherhub decklist response")
-    .convertedDeck
+    .converted_deck
     .into_iter()
     .filter(|card| card.quantity.is_some())
     .collect();
@@ -51,7 +58,7 @@ async fn add_deck_to_db(deck: &Deck) {
         .await
         .expect("uh oh stinky");
 
-    let card_ids = card_ids.iter().map(|card| async {
+    let card_ids = decklist.iter().map(|card| async {
         let double_sided_card_suffix = format!("%{} // %", card.name);
         let alchemy_prefix = format!("%{}", card.name);
         #[derive(Debug)]
@@ -77,7 +84,7 @@ async fn add_deck_to_db(deck: &Deck) {
     });
 
     let card_ids = join_all(card_ids).await;
-    // println!("{:#?}", card_ids);
+    println!("{:#?}", card_ids);
 
     for card in card_ids {
         match card {
@@ -347,11 +354,6 @@ async fn get_aetherhub_decks(start: i32, length: i32) -> Vec<Deck> {
         .collect()
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-struct CardInDeck {
-    quantity: Option<i32>,
-    name: String,
-}
 #[derive(Serialize, Deserialize, Debug)]
 struct Deck {
     id: String,
