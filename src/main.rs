@@ -1,7 +1,7 @@
 // use postgres::{Client, NoTls};
 use serde::{Deserialize, Serialize};
 use serde_json;
-use sqlx::postgres::{PgDatabaseError, PgPoolOptions, PgQueryResult};
+use sqlx::postgres::PgPoolOptions;
 // use sqlx::types::Uuid;
 use futures::future::join_all;
 use std::fs;
@@ -13,11 +13,11 @@ fn main() -> () {
     // save_cards_to_db_from_scryfall();
     add_decks(get_aetherhub_decks(0, 40));
     // get_card_ids(get_decklist(&get_aetherhub_decks(0, 40)[0]))
-    add_deck_to_db(&get_aetherhub_decks(0, 40)[0]);
+    add_deck_to_db(&get_aetherhub_decks(0, 40)[2]);
 }
 
 #[tokio::main]
-async fn add_deck_to_db(deck: &Deck) {
+async fn add_deck_to_db(deck: &AetherHubDeck) {
     let req_client = reqwest::Client::new();
 
     #[derive(Serialize, Deserialize, Debug)]
@@ -36,7 +36,7 @@ async fn add_deck_to_db(deck: &Deck) {
         req_client
             .get(format!(
                 "https://aetherhub.com/Deck/FetchMtgaDeckJson?deckId={}",
-                deck.ah_deck_id // 940216
+                deck.id // 940216
             ))
             .send()
             .await
@@ -57,12 +57,6 @@ async fn add_deck_to_db(deck: &Deck) {
         .connect(DATABASE_URL)
         .await
         .expect("uh oh stinky");
-
-    struct newCard {
-        oracle_id: Option<Uuid>,
-        name: Option<String>,
-        quantity: Option<String>,
-    }
 
     let card_ids = aetherhub_decklist.iter().map(|card| async {
         let double_sided_card_suffix = format!("%{} // %", card.name);
@@ -119,7 +113,7 @@ async fn add_deck_to_db(deck: &Deck) {
     sqlx::query!(
         "CREATE TABLE IF NOT EXISTS decklist (
         oracle_id uuid REFERENCES card(oracle_id),
-        deck_id uuid REFERENCES deck(id),
+        deck_id int REFERENCES deck(id),
         quantity integer NOT NULL,
         PRIMARY KEY (oracle_id, deck_id)
     )",
@@ -128,13 +122,29 @@ async fn add_deck_to_db(deck: &Deck) {
     .await
     .expect("create decklist table failed");
 
+    struct DeckID {
+        id: i32,
+    }
+
+    let deck_id: DeckID =
+        sqlx::query_as!(DeckID, "SELECT id FROM deck WHERE deck_id = $1", deck.id)
+            .fetch_one(&pool)
+            .await
+            .expect(
+                format!(
+                    "couldn't find primary key of deck with deck_id = {}",
+                    deck.id,
+                )
+                .as_str(),
+            );
+
     for card in combined_card_data {
-        let deck_id = Uuid::parse_str(deck.id.as_str()).expect("uuid parsed wrong");
-        println!("{}", deck_id);
+        // let deck_id = Uuid::parse_str(deck.id.as_str()).expect("uuid parsed wrong");
+        println!("{}, {:#?}", deck.id, card.oracle_id);
         sqlx::query!(
             "INSERT INTO decklist (oracle_id, deck_id, quantity) VALUES ($1, $2, $3)",
             card.oracle_id,
-            deck_id,
+            deck_id.id,
             card.quantity
         )
         .execute(&pool)
@@ -211,7 +221,7 @@ async fn save_cards_to_db_from_scryfall() {
 }
 
 #[tokio::main]
-async fn add_decks(decks: Vec<Deck>) {
+async fn add_decks(decks: Vec<AetherHubDeck>) {
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(DATABASE_URL)
@@ -220,7 +230,7 @@ async fn add_decks(decks: Vec<Deck>) {
 
     let create_query = "
     CREATE TABLE IF NOT EXISTS deck (
-      id uuid NOT NULL PRIMARY KEY,
+      id SERIAL PRIMARY KEY,
       deck_id int UNIQUE,
       url text NOT NULL,
       username text NOT NULL,
@@ -234,19 +244,19 @@ async fn add_decks(decks: Vec<Deck>) {
         .expect("couldn't create deck table");
 
     for deck in decks {
-        println!("{}", deck.id);
-        sqlx::query_as!(
-            Deck,
+        // println!("{}", deck.id);
+        let query = sqlx::query_as!(
+            AetherHubDeck,
             "
       INSERT INTO deck (id, deck_id, url, username, date_created, date_updated)
-      VALUES ($1, $2, $3, $4, $5, $6)
+      VALUES (DEFAULT, $1, $2, $3, $4, $5)
       ON CONFLICT (deck_id) DO NOTHING",
-            Uuid::parse_str(&deck.id).expect("uuid parsed wrong"),
-            deck.ah_deck_id,
+            // Uuid::parse_str(&deck.id).expect("uuid parsed wrong"),
+            deck.id,
             deck.url,
             deck.username,
-            deck.date_created,
-            deck.date_updated
+            deck.created,
+            deck.updated
         )
         .execute(&pool)
         .await
@@ -255,7 +265,7 @@ async fn add_decks(decks: Vec<Deck>) {
 }
 
 #[tokio::main]
-async fn get_aetherhub_decks(start: i32, length: i32) -> Vec<Deck> {
+async fn get_aetherhub_decks(start: i32, length: i32) -> Vec<AetherHubDeck> {
     let mut request_data: String = String::from(
         r#"
       {
@@ -400,14 +410,14 @@ async fn get_aetherhub_decks(start: i32, length: i32) -> Vec<Deck> {
     serde_json::from_str::<Response>(&res)
         .expect("unable to parse JSON")
         .metadecks
-        .into_iter()
-        .map(|d| Deck::from(d))
-        .collect()
+    // .into_iter()
+    // .map(|d| Deck::from(d))
+    // .collect()
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Deck {
-    id: String,
+    id: i32,
     ah_deck_id: i32,
     url: String,
     username: String,
@@ -419,7 +429,7 @@ impl From<AetherHubDeck> for Deck {
     fn from(d: AetherHubDeck) -> Self {
         Self {
             //Generating a new uuid when converting from AetherHubDeck to Deck needs to change
-            id: Uuid::new_v4().to_string(),
+            id: 0,
             ah_deck_id: d.id,
             url: d.url,
             username: d.username,
