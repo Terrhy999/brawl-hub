@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS deck (
     url text NOT NULL,
     username text NOT NULL,
     date_created bigint NOT NULL,
-    date_updated bigint NOT NULL
+    date_updated bigint NOT NULL,
+    commander uuid REFERENCES card(oracle_id)
 );
 CREATE TABLE IF NOT EXISTS decklist (
     oracle_id uuid REFERENCES card(oracle_id),

@@ -146,6 +146,17 @@ async fn migrate_aetherhub_decklists(deck: &AetherHubDeck) {
                 .as_str(),
             );
 
+    let result = sqlx::query!(
+        "UPDATE deck SET commander = $1 WHERE id = $2",
+        combined_card_data[0].oracle_id,
+        deck_id.id
+    )
+    .execute(&pool)
+    .await
+    .expect("Couldn't update deck's commander");
+
+    println!("{:#?}", result);
+
     for card in combined_card_data {
         // let deck_id = Uuid::parse_str(deck.id.as_str()).expect("uuid parsed wrong");
         println!("{}, {:#?}", deck.id, card.oracle_id);
@@ -396,6 +407,7 @@ struct Deck {
     username: String,
     date_created: i64,
     date_updated: i64,
+    commander: String,
 }
 
 impl From<AetherHubDeck> for Deck {
@@ -408,6 +420,7 @@ impl From<AetherHubDeck> for Deck {
             username: d.username,
             date_created: d.created,
             date_updated: d.updated,
+            commander: String::from(""),
         }
     }
 }
