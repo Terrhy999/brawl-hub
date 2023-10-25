@@ -12,7 +12,10 @@ const DATABASE_URL: &str = "postgres://postgres:postgres@localhost/brawlhub";
 fn main() -> () {
     // migrate_scryfall_cards();
     save_deck_details(get_aetherhub_decks(0, 40));
-    migrate_aetherhub_decklists(&get_aetherhub_decks(0, 40)[4]);
+    let decks = get_aetherhub_decks(0, 40);
+    for deck in decks {
+        migrate_aetherhub_decklists(&deck)
+    }
 }
 
 #[tokio::main]
