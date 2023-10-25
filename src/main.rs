@@ -108,20 +108,8 @@ async fn migrate_aetherhub_decklists(deck: &AetherHubDeck) {
         })
         .collect();
 
-    sqlx::query!(
-        "CREATE TABLE IF NOT EXISTS decklist (
-        oracle_id uuid REFERENCES card(oracle_id),
-        deck_id int REFERENCES deck(id),
-        quantity integer NOT NULL,
-        PRIMARY KEY (oracle_id, deck_id)
-    )",
-    )
-    .execute(&pool)
-    .await
-    .expect("create decklist table failed");
-
     struct DeckID {
-        id: i32,
+        id: Uuid,
     }
 
     let deck_id: DeckID =
@@ -175,29 +163,6 @@ async fn migrate_scryfall_cards() {
         .await
         .expect("couldn't connect to db");
 
-    let create_query = "
-      CREATE TABLE IF NOT EXISTS card (
-        oracle_id uuid NOT NULL PRIMARY KEY,
-        name text NOT NULL,
-        lang text NOT NULL,
-        scryfall_uri text NOT NULL,
-        layout text NOT NULL,
-        mana_cost text,
-        cmc real NOT NULL,
-        type_line text NOT NULL,
-        oracle_text text,
-        colors char(1)[],
-        color_identity char(1)[] NOT NULL,
-        is_legal bool NOT NULL,
-        is_commander bool NOT NULL,
-        rarity text
-      )";
-
-    sqlx::query(create_query)
-        .execute(&pool)
-        .await
-        .expect("couldn't create card table");
-
     for card in cards {
         sqlx::query_as!(Card, "
         INSERT INTO card (oracle_id, name, lang, scryfall_uri, layout, mana_cost, cmc, type_line, oracle_text, colors, color_identity, is_legal, is_commander, rarity)
@@ -227,27 +192,11 @@ async fn save_deck_details(decks: Vec<AetherHubDeck>) {
         .await
         .expect("couldn't connect to db");
 
-    let create_query = "
-    CREATE TABLE IF NOT EXISTS deck (
-      id SERIAL PRIMARY KEY,
-      deck_id int UNIQUE,
-      url text NOT NULL,
-      username text NOT NULL,
-      date_created bigint NOT NULL,
-      date_updated bigint NOT NULL
-    )";
-
-    sqlx::query(create_query)
-        .execute(&pool)
-        .await
-        .expect("couldn't create deck table");
-
     for deck in decks {
         // println!("{}", deck.id);
         let query = sqlx::query_as!(
             AetherHubDeck,
-            "
-      INSERT INTO deck (id, deck_id, url, username, date_created, date_updated)
+            "INSERT INTO deck (id, deck_id, url, username, date_created, date_updated)
       VALUES (DEFAULT, $1, $2, $3, $4, $5)
       ON CONFLICT (deck_id) DO NOTHING",
             // Uuid::parse_str(&deck.id).expect("uuid parsed wrong"),
