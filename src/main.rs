@@ -109,7 +109,7 @@ async fn migrate_aetherhub_decklists(deck: &AetherHubDeck) {
         .collect();
 
     struct DeckID {
-        id: Uuid,
+        id: i32,
     }
 
     let deck_id: DeckID =
