@@ -13,9 +13,10 @@ fn main() -> () {
     // migrate_scryfall_cards();
     save_deck_details(get_aetherhub_decks(0, 40));
     let decks = get_aetherhub_decks(0, 40);
-    for deck in decks {
-        migrate_aetherhub_decklists(&deck)
-    }
+    // for deck in decks {
+    //     migrate_aetherhub_decklists(&deck)
+    // }
+    migrate_aetherhub_decklists(&decks[0]);
 }
 
 #[tokio::main]
@@ -38,7 +39,8 @@ async fn migrate_aetherhub_decklists(deck: &AetherHubDeck) {
         req_client
             .get(format!(
                 "https://aetherhub.com/Deck/FetchMtgaDeckJson?deckId={}",
-                deck.id // 975951
+                // deck.id
+                975951
             ))
             .send()
             .await
@@ -70,12 +72,13 @@ async fn migrate_aetherhub_decklists(deck: &AetherHubDeck) {
     let card_ids = aetherhub_decklist.iter().map(|card| async {
         let double_sided_card_suffix = format!("%{} // %", card.name);
         let alchemy_prefix = format!("%{}", card.name);
+        let aftermath_cards = format!("{}%", card.name.split_inclusive("/").collect::<Vec<&str>>()[0]);
         #[derive(Debug)]
         struct OracleId {
             oracle_id: Option<Uuid>,
             name: Option<String>,
         }
-        let oracle_id = sqlx::query_as!(
+        sqlx::query_as!(
             OracleId,
             "SELECT oracle_id, name 
           FROM card 
@@ -83,14 +86,18 @@ async fn migrate_aetherhub_decklists(deck: &AetherHubDeck) {
           UNION
           SELECT oracle_id, name 
           FROM card 
-          WHERE name LIKE $2",
+          WHERE name LIKE $2
+          UNION
+          SELECT oracle_id, name 
+          FROM card 
+          WHERE name LIKE $3",
             alchemy_prefix,
             double_sided_card_suffix,
+            aftermath_cards
         )
         .fetch_optional(&pool)
         .await
-        .expect("");
-        oracle_id
+        .expect(format!("Failed to find oracle_id of {}", card.name).as_str())
     });
 
     let card_ids = join_all(card_ids).await;
