@@ -72,7 +72,10 @@ async fn migrate_aetherhub_decklists(deck: &AetherHubDeck) {
     let card_ids = aetherhub_decklist.iter().map(|card| async {
         let double_sided_card_suffix = format!("%{} // %", card.name);
         let alchemy_prefix = format!("%{}", card.name);
-        let aftermath_cards = format!("{}%", card.name.split_inclusive("/").collect::<Vec<&str>>()[0]);
+        let aftermath_cards = format!(
+            "{}%",
+            card.name.split_inclusive("/").collect::<Vec<&str>>()[0]
+        );
         #[derive(Debug)]
         struct OracleId {
             oracle_id: Option<Uuid>,
@@ -97,13 +100,8 @@ async fn migrate_aetherhub_decklists(deck: &AetherHubDeck) {
         )
         .fetch_optional(&pool)
         .await
-<<<<<<< HEAD
-        .expect(format!("Failed to find oracle_id of {}", card.name).as_str())
-=======
         .expect(format!("Error when querying db for {}", card.name).as_str())
-        .expect(format!("Couldn't find oracle_id of card {}", card.name).as_str());
-        oracle_id
->>>>>>> 2d9ac41 (Unwrap Option<OracleID> when we search for oracle_id by card name to fail before we attempt inserting into db)
+        .expect(format!("Couldn't find oracle_id of card {}", card.name).as_str())
     });
 
     let card_ids = join_all(card_ids).await;
