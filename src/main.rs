@@ -35,7 +35,7 @@ async fn migrate_aetherhub_decklists(deck: &AetherHubDeck) {
         req_client
             .get(format!(
                 "https://aetherhub.com/Deck/FetchMtgaDeckJson?deckId={}",
-                deck.id // 940216
+                deck.id // 975951
             ))
             .send()
             .await
@@ -136,10 +136,13 @@ async fn migrate_aetherhub_decklists(deck: &AetherHubDeck) {
         // let deck_id = Uuid::parse_str(deck.id.as_str()).expect("uuid parsed wrong");
         println!("{}, {:#?}", deck.id, card.oracle_id);
         sqlx::query!(
-            "INSERT INTO decklist (oracle_id, deck_id, quantity) VALUES ($1, $2, $3)",
+            "INSERT INTO decklist (oracle_id, deck_id, quantity)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (oracle_id, deck_id) DO UPDATE
+            SET quantity = decklist.quantity + $3",
             card.oracle_id,
             deck_id.id,
-            card.quantity
+            card.quantity,
         )
         .execute(&pool)
         .await
