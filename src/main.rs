@@ -97,7 +97,13 @@ async fn migrate_aetherhub_decklists(deck: &AetherHubDeck) {
         )
         .fetch_optional(&pool)
         .await
+<<<<<<< HEAD
         .expect(format!("Failed to find oracle_id of {}", card.name).as_str())
+=======
+        .expect(format!("Error when querying db for {}", card.name).as_str())
+        .expect(format!("Couldn't find oracle_id of card {}", card.name).as_str());
+        oracle_id
+>>>>>>> 2d9ac41 (Unwrap Option<OracleID> when we search for oracle_id by card name to fail before we attempt inserting into db)
     });
 
     let card_ids = join_all(card_ids).await;
@@ -116,7 +122,7 @@ async fn migrate_aetherhub_decklists(deck: &AetherHubDeck) {
         .map(|(decklist_card, card_id)| {
             let name = decklist_card.name.clone();
             let quantity = decklist_card.quantity;
-            let oracle_id = card_id.and_then(|card| card.oracle_id);
+            let oracle_id = card_id.oracle_id;
 
             CombinedCardData {
                 oracle_id,
