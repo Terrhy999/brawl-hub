@@ -10,18 +10,16 @@ use uuid::Uuid;
 const DATABASE_URL: &str = "postgres://postgres:postgres@localhost/brawlhub";
 
 fn main() -> () {
-    // migrate_scryfall_cards();
     save_deck_details(get_aetherhub_decks(0, 40));
-    // get_card_ids(get_decklist(&get_aetherhub_decks(0, 40)[0]))
-    migrate_decklists_to_brawlhub(&get_aetherhub_decks(0, 40)[2]);
+    migrate_aetherhub_decklists(&get_aetherhub_decks(0, 40)[2]);
 }
 
 #[tokio::main]
-async fn migrate_decklists_to_brawlhub(deck: &AetherHubDeck) {
+async fn migrate_aetherhub_decklists(deck: &AetherHubDeck) {
     let req_client = reqwest::Client::new();
 
     #[derive(Serialize, Deserialize, Debug)]
-    struct ConvertedDeck {
+    struct CardInDeck {
         quantity: Option<i32>,
         name: String,
     }
@@ -29,10 +27,10 @@ async fn migrate_decklists_to_brawlhub(deck: &AetherHubDeck) {
     #[derive(Serialize, Deserialize, Debug)]
     #[serde(rename_all = "camelCase")]
     struct Response {
-        converted_deck: Vec<ConvertedDeck>,
+        converted_deck: Vec<CardInDeck>,
     }
 
-    let aetherhub_decklist: Vec<ConvertedDeck> = serde_json::from_str::<Response>(
+    let aetherhub_decklist: Vec<CardInDeck> = serde_json::from_str::<Response>(
         req_client
             .get(format!(
                 "https://aetherhub.com/Deck/FetchMtgaDeckJson?deckId={}",
@@ -160,7 +158,8 @@ async fn migrate_scryfall_cards() {
         serde_json::from_str(&data).expect("unable to parse JSON");
 
     // Find out why I have to add a static type to this
-    let cards: Vec<Card> = scryfall_cards
+    // Because we didn't define what we were collecting into
+    let cards = scryfall_cards
         .into_iter()
         .filter(|card| match card.layout.as_str() {
             "token" => false,
@@ -168,7 +167,7 @@ async fn migrate_scryfall_cards() {
         })
         .filter(|card| card.legalities.historicbrawl != "not_legal")
         .map(|c| Card::from(c))
-        .collect();
+        .collect::<Vec<Card>>();
 
     let pool = PgPoolOptions::new()
         .max_connections(5)
