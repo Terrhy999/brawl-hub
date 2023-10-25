@@ -10,8 +10,9 @@ use uuid::Uuid;
 const DATABASE_URL: &str = "postgres://postgres:postgres@localhost/brawlhub";
 
 fn main() -> () {
+    // migrate_scryfall_cards();
     save_deck_details(get_aetherhub_decks(0, 40));
-    migrate_aetherhub_decklists(&get_aetherhub_decks(0, 40)[2]);
+    migrate_aetherhub_decklists(&get_aetherhub_decks(0, 40)[4]);
 }
 
 #[tokio::main]
@@ -48,6 +49,13 @@ async fn migrate_aetherhub_decklists(deck: &AetherHubDeck) {
     .converted_deck
     .into_iter()
     .filter(|card| card.quantity.is_some())
+    .map(|card| CardInDeck {
+        name: match card.name.strip_prefix("A-") {
+            Some(x) => x.to_string(),
+            None => card.name,
+        },
+        quantity: card.quantity,
+    })
     .collect();
 
     let pool = PgPoolOptions::new()
