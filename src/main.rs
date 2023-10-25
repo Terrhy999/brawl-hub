@@ -10,18 +10,18 @@ use uuid::Uuid;
 const DATABASE_URL: &str = "postgres://postgres:postgres@localhost/brawlhub";
 
 fn main() -> () {
-    // save_cards_to_db_from_scryfall();
-    add_decks(get_aetherhub_decks(0, 40));
+    // migrate_scryfall_cards();
+    save_deck_details(get_aetherhub_decks(0, 40));
     // get_card_ids(get_decklist(&get_aetherhub_decks(0, 40)[0]))
-    add_deck_to_db(&get_aetherhub_decks(0, 40)[2]);
+    migrate_decklists_to_brawlhub(&get_aetherhub_decks(0, 40)[2]);
 }
 
 #[tokio::main]
-async fn add_deck_to_db(deck: &AetherHubDeck) {
+async fn migrate_decklists_to_brawlhub(deck: &AetherHubDeck) {
     let req_client = reqwest::Client::new();
 
     #[derive(Serialize, Deserialize, Debug)]
-    struct CardInDeck {
+    struct ConvertedDeck {
         quantity: Option<i32>,
         name: String,
     }
@@ -29,10 +29,10 @@ async fn add_deck_to_db(deck: &AetherHubDeck) {
     #[derive(Serialize, Deserialize, Debug)]
     #[serde(rename_all = "camelCase")]
     struct Response {
-        converted_deck: Vec<CardInDeck>,
+        converted_deck: Vec<ConvertedDeck>,
     }
 
-    let aetherhub_decklist: Vec<CardInDeck> = serde_json::from_str::<Response>(
+    let aetherhub_decklist: Vec<ConvertedDeck> = serde_json::from_str::<Response>(
         req_client
             .get(format!(
                 "https://aetherhub.com/Deck/FetchMtgaDeckJson?deckId={}",
@@ -154,7 +154,7 @@ async fn add_deck_to_db(deck: &AetherHubDeck) {
 }
 
 #[tokio::main]
-async fn save_cards_to_db_from_scryfall() {
+async fn migrate_scryfall_cards() {
     let data = fs::read_to_string("oracle-cards.json").expect("unable to read JSON");
     let scryfall_cards: Vec<ScryfallCard> =
         serde_json::from_str(&data).expect("unable to parse JSON");
@@ -221,7 +221,7 @@ async fn save_cards_to_db_from_scryfall() {
 }
 
 #[tokio::main]
-async fn add_decks(decks: Vec<AetherHubDeck>) {
+async fn save_deck_details(decks: Vec<AetherHubDeck>) {
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(DATABASE_URL)
