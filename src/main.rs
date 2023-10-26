@@ -1,7 +1,7 @@
 // use postgres::{Client, NoTls};
 use serde::{Deserialize, Serialize};
 use serde_json;
-use sqlx::{postgres::PgPoolOptions, Postgres, Pool};
+use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
 // use sqlx::types::Uuid;
 use futures::future::join_all;
 use std::fs;
@@ -17,16 +17,15 @@ async fn main() -> () {
         .await
         .expect("couldn't connect to db");
 
-    // migrate_scryfall_cards();
+    migrate_scryfall_cards(&pool).await;
     let decks = get_aetherhub_decks(0, 40).await;
-    save_deck_details(&pool, &decks).await;
     for deck in decks {
         migrate_aetherhub_decklists(&pool, &deck).await
     }
     // migrate_aetherhub_decklists(&decks[0]).await;
 }
 
-async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>,deck: &AetherHubDeck) {
+async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck) {
     let req_client = reqwest::Client::new();
 
     #[derive(Serialize, Deserialize, Debug)]
@@ -45,8 +44,7 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>,deck: &AetherHubDeck)
         req_client
             .get(format!(
                 "https://aetherhub.com/Deck/FetchMtgaDeckJson?deckId={}",
-                deck.id
-                // 975951
+                deck.id // 975951
             ))
             .send()
             .await
@@ -68,6 +66,25 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>,deck: &AetherHubDeck)
         quantity: card.quantity,
     })
     .collect();
+
+    // println!("{}", deck.id);
+    // println!("{:#?}, id: {}", aetherhub_decklist, deck.id);
+    sqlx::query_as!(
+        AetherHubDeck,
+        "INSERT INTO deck (id, deck_id, url, username, date_created, date_updated, commander)
+  VALUES (DEFAULT, $1, $2, $3, $4, $5, $6)
+  ON CONFLICT (deck_id) DO NOTHING",
+        // Uuid::parse_str(&deck.id).expect("uuid parsed wrong"),
+        deck.id,
+        deck.url,
+        deck.username,
+        deck.created,
+        deck.updated,
+        aetherhub_decklist[0].name,
+    )
+    .execute(pool)
+    .await
+    .expect("insert deck into db failed");
 
     let card_ids = aetherhub_decklist.iter().map(|card| async {
         let double_sided_card_suffix = format!("%{} // %", card.name);
@@ -210,27 +227,6 @@ async fn migrate_scryfall_cards(pool: &Pool<Postgres>) {
         card.is_legal,
         card.is_commander,
         card.rarity).execute(pool).await.expect("couldn't insert");
-    }
-}
-
-async fn save_deck_details(pool: &Pool<Postgres>, decks: &Vec<AetherHubDeck>) {
-    for deck in decks {
-        // println!("{}", deck.id);
-        let query = sqlx::query_as!(
-            AetherHubDeck,
-            "INSERT INTO deck (id, deck_id, url, username, date_created, date_updated)
-      VALUES (DEFAULT, $1, $2, $3, $4, $5)
-      ON CONFLICT (deck_id) DO NOTHING",
-            // Uuid::parse_str(&deck.id).expect("uuid parsed wrong"),
-            deck.id,
-            deck.url,
-            deck.username,
-            deck.created,
-            deck.updated
-        )
-        .execute(pool)
-        .await
-        .expect("insert deck into db failed");
     }
 }
 
