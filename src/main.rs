@@ -17,7 +17,7 @@ async fn main() -> () {
         .await
         .expect("couldn't connect to db");
 
-    // migrate_scryfall_cards(&pool).await;
+    migrate_scryfall_cards(&pool).await;
     let decks = get_aetherhub_decks(0, 40).await;
     for deck in decks {
         migrate_aetherhub_decklists(&pool, &deck).await
@@ -179,28 +179,31 @@ async fn migrate_scryfall_cards(pool: &Pool<Postgres>) {
             "token" => false,
             _ => true,
         })
-        .filter(|card| card.legalities.historicbrawl != "not_legal")
+        // .filter(|card| card.legalities.historicbrawl != "not_legal")
         .map(|c| Card::from(c))
         .collect::<Vec<Card>>();
 
     for card in cards {
-        sqlx::query_as!(Card, "
-        INSERT INTO card (oracle_id, name, lang, scryfall_uri, layout, mana_cost, cmc, type_line, oracle_text, colors, color_identity, is_legal, is_commander, rarity)
+        sqlx::query_as!(Card, "INSERT INTO card(oracle_id, name, lang, scryfall_uri, layout, mana_cost, cmc, type_line, oracle_text, colors, color_identity, is_legal, is_commander, rarity)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
-        Uuid::parse_str(&card.oracle_id).expect("uuid parsed wrong"),
-        card.name,
-        card.lang,
-        card.scryfall_uri,
-        card.layout,
-        card.mana_cost,
-        card.cmc,
-        card.type_line,
-        card.oracle_text,
-        card.colors.as_deref(),
-        &card.color_identity,
-        card.is_legal,
-        card.is_commander,
-        card.rarity).execute(pool).await.expect("couldn't insert");
+            Uuid::parse_str(&card.oracle_id).expect("uuid parsed wrong"),
+            card.name,
+            card.lang,
+            card.scryfall_uri,
+            card.layout,
+            card.mana_cost,
+            card.cmc,
+            card.type_line,
+            card.oracle_text,
+            card.colors.as_deref(),
+            &card.color_identity,
+            card.is_legal,
+            card.is_commander,
+            card.rarity
+        )
+        .execute(pool)
+        .await
+        .expect("couldn't insert");
     }
 }
 
