@@ -1,5 +1,5 @@
 [package]
-name = "brawl_hub"
+name = "brawl_hub_migration_tool"
 version = "0.1.0"
 edition = "2021"
 

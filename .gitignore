@@ -1,5 +1,4 @@
-/target
+/**/target
 oracle-cards.json
 .env
 pgdata
-Cargo.lock
