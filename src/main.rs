@@ -19,7 +19,7 @@ async fn main() -> () {
 
     // migrate_scryfall_cards();
     let decks = get_aetherhub_decks(0, 40).await;
-    // save_deck_details(&pool, decks).await;
+    save_deck_details(&pool, &decks).await;
     for deck in decks {
         migrate_aetherhub_decklists(&pool, &deck).await
     }
@@ -159,7 +159,7 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>,deck: &AetherHubDeck)
 
     for card in combined_card_data {
         // let deck_id = Uuid::parse_str(deck.id.as_str()).expect("uuid parsed wrong");
-        println!("{}, {:#?}", deck.id, card.oracle_id);
+        println!("{}, {:#?} {}", deck.id, card.oracle_id, card.name);
         sqlx::query!(
             "INSERT INTO decklist (oracle_id, deck_id, quantity)
             VALUES ($1, $2, $3)
@@ -213,7 +213,7 @@ async fn migrate_scryfall_cards(pool: &Pool<Postgres>) {
     }
 }
 
-async fn save_deck_details(pool: &Pool<Postgres>, decks: Vec<AetherHubDeck>) {
+async fn save_deck_details(pool: &Pool<Postgres>, decks: &Vec<AetherHubDeck>) {
     for deck in decks {
         // println!("{}", deck.id);
         let query = sqlx::query_as!(
