@@ -1,7 +1,7 @@
 // use postgres::{Client, NoTls};
 use serde::{Deserialize, Serialize};
 use serde_json;
-use sqlx::postgres::PgPoolOptions;
+use sqlx::{postgres::PgPoolOptions, Postgres, Pool};
 // use sqlx::types::Uuid;
 use futures::future::join_all;
 use std::fs;
@@ -11,16 +11,22 @@ const DATABASE_URL: &str = "postgres://postgres:postgres@localhost/brawlhub";
 
 #[tokio::main]
 async fn main() -> () {
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(DATABASE_URL)
+        .await
+        .expect("couldn't connect to db");
+
     // migrate_scryfall_cards();
-    save_deck_details(get_aetherhub_decks(0, 40)).await;
-    let decks = get_aetherhub_decks(0, 40);
-    // for deck in decks {
-    //     migrate_aetherhub_decklists(&deck)
-    // }
-    migrate_aetherhub_decklists(&decks[0]).await;
+    let decks = get_aetherhub_decks(0, 40).await;
+    // save_deck_details(&pool, decks).await;
+    for deck in decks {
+        migrate_aetherhub_decklists(&pool, &deck).await
+    }
+    // migrate_aetherhub_decklists(&decks[0]).await;
 }
 
-async fn migrate_aetherhub_decklists(deck: &AetherHubDeck) {
+async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>,deck: &AetherHubDeck) {
     let req_client = reqwest::Client::new();
 
     #[derive(Serialize, Deserialize, Debug)]
@@ -40,6 +46,7 @@ async fn migrate_aetherhub_decklists(deck: &AetherHubDeck) {
             .get(format!(
                 "https://aetherhub.com/Deck/FetchMtgaDeckJson?deckId={}",
                 deck.id
+                // 975951
             ))
             .send()
             .await
@@ -61,12 +68,6 @@ async fn migrate_aetherhub_decklists(deck: &AetherHubDeck) {
         quantity: card.quantity,
     })
     .collect();
-
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect(DATABASE_URL)
-        .await
-        .expect("uh oh stinky");
 
     let card_ids = aetherhub_decklist.iter().map(|card| async {
         let double_sided_card_suffix = format!("%{} // %", card.name);
@@ -97,7 +98,7 @@ async fn migrate_aetherhub_decklists(deck: &AetherHubDeck) {
             double_sided_card_suffix,
             aftermath_cards
         )
-        .fetch_optional(&pool)
+        .fetch_optional(pool)
         .await
         .expect(format!("Error when querying db for {}", card.name).as_str())
         .expect(format!("Couldn't find oracle_id of card {}", card.name).as_str())
@@ -135,7 +136,7 @@ async fn migrate_aetherhub_decklists(deck: &AetherHubDeck) {
 
     let deck_id: DeckID =
         sqlx::query_as!(DeckID, "SELECT id FROM deck WHERE deck_id = $1", deck.id)
-            .fetch_one(&pool)
+            .fetch_one(pool)
             .await
             .expect(
                 format!(
@@ -168,13 +169,13 @@ async fn migrate_aetherhub_decklists(deck: &AetherHubDeck) {
             deck_id.id,
             card.quantity,
         )
-        .execute(&pool)
+        .execute(pool)
         .await
         .expect("insert card failed");
     }
 }
 
-async fn migrate_scryfall_cards() {
+async fn migrate_scryfall_cards(pool: &Pool<Postgres>) {
     let data = fs::read_to_string("oracle-cards.json").expect("unable to read JSON");
     let scryfall_cards: Vec<ScryfallCard> =
         serde_json::from_str(&data).expect("unable to parse JSON");
@@ -190,12 +191,6 @@ async fn migrate_scryfall_cards() {
         .filter(|card| card.legalities.historicbrawl != "not_legal")
         .map(|c| Card::from(c))
         .collect::<Vec<Card>>();
-
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect(DATABASE_URL)
-        .await
-        .expect("couldn't connect to db");
 
     for card in cards {
         sqlx::query_as!(Card, "
@@ -214,17 +209,11 @@ async fn migrate_scryfall_cards() {
         &card.color_identity,
         card.is_legal,
         card.is_commander,
-        card.rarity).execute(&pool).await.expect("couldn't insert");
+        card.rarity).execute(pool).await.expect("couldn't insert");
     }
 }
 
-async fn save_deck_details(decks: Vec<AetherHubDeck>) {
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect(DATABASE_URL)
-        .await
-        .expect("couldn't connect to db");
-
+async fn save_deck_details(pool: &Pool<Postgres>, decks: Vec<AetherHubDeck>) {
     for deck in decks {
         // println!("{}", deck.id);
         let query = sqlx::query_as!(
@@ -239,13 +228,12 @@ async fn save_deck_details(decks: Vec<AetherHubDeck>) {
             deck.created,
             deck.updated
         )
-        .execute(&pool)
+        .execute(pool)
         .await
         .expect("insert deck into db failed");
     }
 }
 
-#[tokio::main]
 async fn get_aetherhub_decks(start: i32, length: i32) -> Vec<AetherHubDeck> {
     let mut request_data: String = String::from(
         r#"
