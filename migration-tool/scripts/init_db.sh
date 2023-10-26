@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-sudo -i -u postgres -H -- psql -d brawlhub -c "CREATE TABLE IF NOT EXISTS card (
+sudo -i -u postgres -H -- psql -d brawlhub -h localhost -c "CREATE TABLE IF NOT EXISTS card (
     oracle_id uuid NOT NULL PRIMARY KEY,
     name text NOT NULL,
     lang text NOT NULL,
@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS deck (
     username text NOT NULL,
     date_created bigint NOT NULL,
     date_updated bigint NOT NULL,
-    commander uuid REFERENCES card(oracle_id)
+    commander uuid REFERENCES card(oracle_id) NOT NULL
 );
 CREATE TABLE IF NOT EXISTS decklist (
     oracle_id uuid REFERENCES card(oracle_id),

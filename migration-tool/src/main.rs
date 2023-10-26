@@ -19,7 +19,7 @@ async fn main() {
     if false {
         migrate_scryfall_cards(&pool).await;
     }
-    let decks = get_aetherhub_decks(0, 1000).await;
+    let decks = get_aetherhub_decks(0, 40).await;
     for deck in decks {
         migrate_aetherhub_decklists(&pool, &deck).await
     }
@@ -68,22 +68,6 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
 
     // println!("{}", deck.id);
     // println!("{:#?}, id: {}", aetherhub_decklist, deck.id);
-    sqlx::query_as!(
-        AetherHubDeck,
-        "INSERT INTO deck (id, deck_id, url, username, date_created, date_updated, commander)
-  VALUES (DEFAULT, $1, $2, $3, $4, $5, $6)
-  ON CONFLICT (deck_id) DO NOTHING",
-        // Uuid::parse_str(&deck.id).expect("uuid parsed wrong"),
-        deck.id,
-        deck.url,
-        deck.username,
-        deck.created,
-        deck.updated,
-        aetherhub_decklist[0].name,
-    )
-    .execute(pool)
-    .await
-    .expect("insert deck into db failed");
 
     let card_ids = aetherhub_decklist.iter().map(|card| async {
         let aftermath_cards = format!(
@@ -140,6 +124,25 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
         id: i32,
     }
 
+    sqlx::query_as!(
+        AetherHubDeck,
+        "INSERT INTO deck (id, deck_id, url, username, date_created, date_updated, commander)
+        VALUES (DEFAULT, $1, $2, $3, $4, $5, $6)
+        ON CONFLICT (deck_id) DO NOTHING",
+        // Uuid::parse_str(&deck.id).expect("uuid parsed wrong"),
+        deck.id,
+        deck.url,
+        deck.username,
+        deck.created,
+        deck.updated,
+        combined_card_data[0]
+            .oracle_id
+            .expect("uh oh no oracle_id for your commander"),
+    )
+    .execute(pool)
+    .await
+    .expect("insert deck into db failed");
+
     let deck_id: DeckID =
         sqlx::query_as!(DeckID, "SELECT id FROM deck WHERE deck_id = $1", deck.id)
             .fetch_one(pool)
@@ -176,7 +179,7 @@ async fn migrate_scryfall_cards(pool: &Pool<Postgres>) {
 
     let cards = scryfall_cards
         .into_iter()
-        .filter(|card| matches!(card.layout.as_str(), "token"))
+        .filter(|card| !matches!(card.layout.as_str(), "token"))
         // .filter(|card| card.legalities.historicbrawl != "not_legal")
         .map(Card::from)
         .collect::<Vec<Card>>();
