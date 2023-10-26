@@ -1,6 +1,5 @@
 // use postgres::{Client, NoTls};
 use serde::{Deserialize, Serialize};
-use serde_json;
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
 // use sqlx::types::Uuid;
 use futures::future::join_all;
@@ -10,15 +9,17 @@ use uuid::Uuid;
 const DATABASE_URL: &str = "postgres://postgres:postgres@localhost/brawlhub";
 
 #[tokio::main]
-async fn main() -> () {
+async fn main() {
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(DATABASE_URL)
         .await
         .expect("couldn't connect to db");
 
-    migrate_scryfall_cards(&pool).await;
-    let decks = get_aetherhub_decks(0, 40).await;
+    if false {
+        migrate_scryfall_cards(&pool).await;
+    }
+    let decks = get_aetherhub_decks(0, 1000).await;
     for deck in decks {
         migrate_aetherhub_decklists(&pool, &deck).await
     }
@@ -87,9 +88,10 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
     let card_ids = aetherhub_decklist.iter().map(|card| async {
         let aftermath_cards = format!(
             "{}%",
-            card.name.split_inclusive("/").collect::<Vec<&str>>()[0]
+            card.name.split_inclusive('/').collect::<Vec<&str>>()[0]
         );
         #[derive(Debug)]
+        #[allow(dead_code)]
         struct OracleId {
             oracle_id: Option<Uuid>,
             name: Option<String>,
@@ -104,8 +106,8 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
         )
         .fetch_optional(pool)
         .await
-        .expect(format!("Error when querying db for {}", card.name).as_str())
-        .expect(format!("Couldn't find oracle_id of card {}", card.name).as_str())
+        .unwrap_or_else(|_| panic!("Error when querying db for {}", card.name))
+        .unwrap_or_else(|| panic!("Couldn't find oracle_id of card {}", card.name))
     });
 
     let card_ids = join_all(card_ids).await;
@@ -142,13 +144,12 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
         sqlx::query_as!(DeckID, "SELECT id FROM deck WHERE deck_id = $1", deck.id)
             .fetch_one(pool)
             .await
-            .expect(
-                format!(
+            .unwrap_or_else(|_| {
+                panic!(
                     "couldn't find primary key of deck with deck_id = {}",
-                    deck.id,
+                    deck.id
                 )
-                .as_str(),
-            );
+            });
 
     for card in combined_card_data {
         // let deck_id = Uuid::parse_str(deck.id.as_str()).expect("uuid parsed wrong");
@@ -175,12 +176,9 @@ async fn migrate_scryfall_cards(pool: &Pool<Postgres>) {
 
     let cards = scryfall_cards
         .into_iter()
-        .filter(|card| match card.layout.as_str() {
-            "token" => false,
-            _ => true,
-        })
+        .filter(|card| matches!(card.layout.as_str(), "token"))
         // .filter(|card| card.legalities.historicbrawl != "not_legal")
-        .map(|c| Card::from(c))
+        .map(Card::from)
         .collect::<Vec<Card>>();
 
     for card in cards {
@@ -416,9 +414,9 @@ struct ScryfallCard {
 
 impl From<ScryfallCard> for Card {
     fn from(c: ScryfallCard) -> Self {
-        let is_commander = (c.type_line.to_lowercase().find("legendary").is_some()
-            && c.type_line.to_lowercase().find("creature").is_some())
-            || c.type_line.to_lowercase().find("planeswalker").is_some();
+        let is_commander = (c.type_line.to_lowercase().contains("legendary")
+            && c.type_line.to_lowercase().contains("creature"))
+            || c.type_line.to_lowercase().contains("planeswalker");
 
         Self {
             // id: c.id,
@@ -435,10 +433,7 @@ impl From<ScryfallCard> for Card {
             colors: c.colors,
             color_identity: c.color_identity,
             rarity: c.rarity,
-            is_legal: match c.legalities.brawl.as_str() {
-                "legal" => true,
-                _ => false,
-            },
+            is_legal: matches!(c.legalities.brawl.as_str(), "legal"),
             is_commander,
         }
     }
