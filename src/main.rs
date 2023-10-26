@@ -9,17 +9,17 @@ use uuid::Uuid;
 
 const DATABASE_URL: &str = "postgres://postgres:postgres@localhost/brawlhub";
 
-fn main() -> () {
+#[tokio::main]
+async fn main() -> () {
     // migrate_scryfall_cards();
-    save_deck_details(get_aetherhub_decks(0, 40));
+    save_deck_details(get_aetherhub_decks(0, 40)).await;
     let decks = get_aetherhub_decks(0, 40);
     // for deck in decks {
     //     migrate_aetherhub_decklists(&deck)
     // }
-    migrate_aetherhub_decklists(&decks[0]);
+    migrate_aetherhub_decklists(&decks[0]).await;
 }
 
-#[tokio::main]
 async fn migrate_aetherhub_decklists(deck: &AetherHubDeck) {
     let req_client = reqwest::Client::new();
 
@@ -39,8 +39,7 @@ async fn migrate_aetherhub_decklists(deck: &AetherHubDeck) {
         req_client
             .get(format!(
                 "https://aetherhub.com/Deck/FetchMtgaDeckJson?deckId={}",
-                // deck.id
-                975951
+                deck.id
             ))
             .send()
             .await
@@ -175,7 +174,6 @@ async fn migrate_aetherhub_decklists(deck: &AetherHubDeck) {
     }
 }
 
-#[tokio::main]
 async fn migrate_scryfall_cards() {
     let data = fs::read_to_string("oracle-cards.json").expect("unable to read JSON");
     let scryfall_cards: Vec<ScryfallCard> =
@@ -220,7 +218,6 @@ async fn migrate_scryfall_cards() {
     }
 }
 
-#[tokio::main]
 async fn save_deck_details(decks: Vec<AetherHubDeck>) {
     let pool = PgPoolOptions::new()
         .max_connections(5)
