@@ -26,8 +26,6 @@ async fn main() -> () {
 }
 
 async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck) {
-    let req_client = reqwest::Client::new();
-
     #[derive(Serialize, Deserialize, Debug)]
     struct CardInDeck {
         quantity: Option<i32>,
@@ -41,11 +39,10 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
     }
 
     let aetherhub_decklist: Vec<CardInDeck> = serde_json::from_str::<Response>(
-        req_client
+        reqwest::Client::new()
             .get(format!(
                 "https://aetherhub.com/Deck/FetchMtgaDeckJson?deckId={}",
-                deck.id
-                // 975951
+                deck.id // 975951
             ))
             .send()
             .await
@@ -332,8 +329,7 @@ async fn get_aetherhub_decks(start: i32, length: i32) -> Vec<AetherHubDeck> {
     request_data.push_str(&start);
     request_data.push_str(&length);
 
-    let req_client = reqwest::Client::new();
-    let res = req_client
+    let res = reqwest::Client::new()
         .post("https://aetherhub.com/Meta/FetchMetaListAdv?formatId=19")
         .header("Content-Type", "application/json")
         .body(request_data)
@@ -344,7 +340,7 @@ async fn get_aetherhub_decks(start: i32, length: i32) -> Vec<AetherHubDeck> {
         .await
         .expect("couldn't read response body");
 
-    #[derive(Serialize, Deserialize, Debug)]
+    #[derive(Deserialize, Debug)]
     struct Response {
         metadecks: Vec<AetherHubDeck>,
     }
@@ -352,9 +348,6 @@ async fn get_aetherhub_decks(start: i32, length: i32) -> Vec<AetherHubDeck> {
     serde_json::from_str::<Response>(&res)
         .expect("unable to parse JSON")
         .metadecks
-    // .into_iter()
-    // .map(|d| Deck::from(d))
-    // .collect()
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -366,21 +359,6 @@ struct Deck {
     date_created: i64,
     date_updated: i64,
     commander: String,
-}
-
-impl From<AetherHubDeck> for Deck {
-    fn from(d: AetherHubDeck) -> Self {
-        Self {
-            //Generating a new uuid when converting from AetherHubDeck to Deck needs to change
-            id: 0,
-            ah_deck_id: d.id,
-            url: d.url,
-            username: d.username,
-            date_created: d.created,
-            date_updated: d.updated,
-            commander: String::from(""),
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
