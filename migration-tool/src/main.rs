@@ -16,13 +16,13 @@ async fn main() {
         .await
         .expect("couldn't connect to db");
 
-    if false {
+    if true {
         migrate_scryfall_cards(&pool).await;
     }
-    let decks = get_aetherhub_decks(0, 40).await;
-    for deck in decks {
-        migrate_aetherhub_decklists(&pool, &deck).await
-    }
+    // let decks = get_aetherhub_decks(40, 80).await;
+    // for deck in decks {
+    //     migrate_aetherhub_decklists(&pool, &deck).await
+    // }
     // migrate_aetherhub_decklists(&pool, &decks[0]).await;
 }
 
@@ -383,7 +383,6 @@ struct Card {
     lang: String,
     scryfall_uri: String,
     layout: String,
-    // image_uris: Option<CardImages>,
     mana_cost: Option<String>,
     cmc: f32,
     type_line: String,
@@ -393,17 +392,21 @@ struct Card {
     is_legal: bool,
     is_commander: bool,
     rarity: String,
+    image_small: String,
+    image_normal: String,
+    image_large: String,
+    image_art_crop: String,
+    image_border_crop: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 struct ScryfallCard {
-    // id: String,
     oracle_id: String,
     name: String,
     lang: String,
     scryfall_uri: String,
     layout: String,
-    image_uris: Option<CardImages>,
+    image_uris: CardImages,
     mana_cost: Option<String>,
     cmc: f32,
     type_line: String,
@@ -438,6 +441,11 @@ impl From<ScryfallCard> for Card {
             rarity: c.rarity,
             is_legal: matches!(c.legalities.brawl.as_str(), "legal"),
             is_commander,
+            image_small: c.image_uris.small,
+            image_normal: c.image_uris.normal,
+            image_large: c.image_uris.large,
+            image_art_crop: c.image_uris.art_crop,
+            image_border_crop: c.image_uris.border_crop,
         }
     }
 }
