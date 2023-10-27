@@ -16,10 +16,10 @@ async fn main() {
         .await
         .expect("couldn't connect to db");
 
-    if true {
+    if false {
         migrate_scryfall_cards(&pool).await;
     }
-    let decks = get_aetherhub_decks(0, 40).await;
+    let decks = get_aetherhub_decks(0, 80).await;
     for deck in decks {
         migrate_aetherhub_decklists(&pool, &deck).await
     }

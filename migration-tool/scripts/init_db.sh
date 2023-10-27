@@ -14,12 +14,12 @@ sudo -i -u postgres -H -- psql -d brawlhub -h localhost -c "CREATE TABLE IF NOT 
     color_identity char(1)[] NOT NULL,
     is_legal bool NOT NULL,
     is_commander bool NOT NULL,
-    rarity text,
-    image_small text,
-    image_normal text,
-    image_large text,
-    image_art_crop text,
-    image_border_crop text
+    rarity text NOT NULL,
+    image_small text NOT NULL,
+    image_normal text NOT NULL,
+    image_large text NOT NULL,
+    image_art_crop text NOT NULL,
+    image_border_crop text NOT NULL
 );
 CREATE TABLE IF NOT EXISTS deck (
     id SERIAL PRIMARY KEY,
