@@ -42,10 +42,16 @@ export default async function Home() {
     // const top_cards: TopCard[] = await getTopCards();
     // console.log(top_commanders);
     return (
-        <div className="bg-[#22262a] text-white">
+        // <div className="bg-[#22262a] text-white">
+        <div className="bg-[#0f0f0f] text-white">
             <NavBar />
             <main className="m-10">
                 <h1 className="text-[32px]">Top Commanders</h1>
+                <span className="flex [&>*]:mr-[12px]">
+                    <ClickableChip text={"Week"} />
+                    <ClickableChip text={"Month"} />
+                    <ClickableChip text={"Year"} />
+                </span>
                 <div className="grid gap-[20px] grid-cols-[repeat(auto-fit,minmax(270px,1fr))]">
                     {top_commanders.map((c, i: number) => (
                         <CardAndRank key={i} i={i} c={c} />
@@ -53,6 +59,12 @@ export default async function Home() {
                 </div>
             </main>
         </div>
+    );
+}
+
+function ClickableChip({ text }: { text: string }) {
+    return (
+        <div className="rounded-[8px] bg-white/[0.1] h-[32px] w-m-[12px] px-[12px] font-medium">{text}</div>
     );
 }
 
@@ -65,7 +77,7 @@ function NavBar() {
     )
 }
 
-function CardAndRank({i, c} : {i: number, c: Card}) {
+function CardAndRank({ i, c }: { i: number, c: Card }) {
     return (
         <div className="flex flex-col items-center">
             <Image className="rounded-[5%] max-h-[340px]" src={c.image_large} alt={c.name} width={244} height={340} />
