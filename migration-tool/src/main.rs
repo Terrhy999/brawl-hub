@@ -179,14 +179,19 @@ async fn migrate_scryfall_cards(pool: &Pool<Postgres>) {
 
     let cards = scryfall_cards
         .into_iter()
-        .filter(|card| !matches!(card.layout.as_str(), "token"))
+        .filter(|card| match card {
+            ScryfallCard::Normal(c) => c.layout != "token",
+            ScryfallCard::TwoFace(c) => c.layout != "token",
+        })
         // .filter(|card| card.legalities.historicbrawl != "not_legal")
         .map(Card::from)
         .collect::<Vec<Card>>();
 
+    // println!("{:#?}", cards);
+
     for card in cards {
-        sqlx::query_as!(Card, "INSERT INTO card(oracle_id, name, lang, scryfall_uri, layout, mana_cost, cmc, type_line, oracle_text, colors, color_identity, is_legal, is_commander, rarity)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
+        sqlx::query_as!(Card, "INSERT INTO card(oracle_id, name, lang, scryfall_uri, layout, mana_cost, cmc, type_line, oracle_text, colors, color_identity, is_legal, is_commander, rarity, image_small, image_normal, image_large, image_art_crop, image_border_crop)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)",
             Uuid::parse_str(&card.oracle_id).expect("uuid parsed wrong"),
             card.name,
             card.lang,
@@ -200,7 +205,12 @@ async fn migrate_scryfall_cards(pool: &Pool<Postgres>) {
             &card.color_identity,
             card.is_legal,
             card.is_commander,
-            card.rarity
+            card.rarity,
+            card.image_small,
+            card.image_normal,
+            card.image_large,
+            card.image_art_crop,
+            card.image_border_crop
         )
         .execute(pool)
         .await
@@ -400,7 +410,14 @@ struct Card {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-struct ScryfallCard {
+#[serde(untagged)]
+enum ScryfallCard {
+    Normal(Normal),
+    TwoFace(TwoFace),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct Normal {
     oracle_id: String,
     name: String,
     lang: String,
@@ -418,34 +435,95 @@ struct ScryfallCard {
     games: Vec<String>,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+struct TwoFace {
+    oracle_id: String,
+    name: String,
+    lang: String,
+    scryfall_uri: String,
+    layout: String,
+    // mana_cost: Option<String>,
+    cmc: f32,
+    type_line: String,
+    // oracle_text: Option<String>,
+    // colors: Option<Vec<String>>,
+    color_identity: Vec<String>,
+    legalities: Legalaties,
+    rarity: String,
+    games: Vec<String>,
+    card_faces: Vec<CardFace>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct CardFace {
+    mana_cost: String,
+    type_line: Option<String>,
+    oracle_text: String,
+    colors: Option<Vec<String>>,
+    image_uris: CardImages,
+}
+
 impl From<ScryfallCard> for Card {
     fn from(c: ScryfallCard) -> Self {
-        let is_commander = (c.type_line.to_lowercase().contains("legendary")
-            && c.type_line.to_lowercase().contains("creature"))
-            || c.type_line.to_lowercase().contains("planeswalker");
+        let is_commander = match &c {
+            ScryfallCard::Normal(c) => {
+                c.type_line.to_lowercase().contains("legendary")
+                    && c.type_line.to_lowercase().contains("creature")
+                    || c.type_line.to_lowercase().contains("planeswalker")
+            }
+            ScryfallCard::TwoFace(c) => {
+                c.type_line.to_lowercase().contains("legendary")
+                    && c.type_line.to_lowercase().contains("creature")
+                    || c.type_line.to_lowercase().contains("planeswalker")
+            }
+        };
 
-        Self {
-            // id: c.id,
-            oracle_id: c.oracle_id,
-            name: c.name,
-            mana_cost: c.mana_cost,
-            lang: c.lang,
-            scryfall_uri: c.scryfall_uri,
-            layout: c.layout,
-            // image_uris: c.image_uris,
-            cmc: c.cmc,
-            type_line: c.type_line.clone(),
-            oracle_text: c.oracle_text,
-            colors: c.colors,
-            color_identity: c.color_identity,
-            rarity: c.rarity,
-            is_legal: matches!(c.legalities.brawl.as_str(), "legal"),
-            is_commander,
-            image_small: c.image_uris.small,
-            image_normal: c.image_uris.normal,
-            image_large: c.image_uris.large,
-            image_art_crop: c.image_uris.art_crop,
-            image_border_crop: c.image_uris.border_crop,
+        match c {
+            ScryfallCard::Normal(c) => Self {
+                // id: c.id,
+                oracle_id: c.oracle_id,
+                name: c.name,
+                mana_cost: c.mana_cost,
+                lang: c.lang,
+                scryfall_uri: c.scryfall_uri,
+                layout: c.layout,
+                // image_uris: c.image_uris,
+                cmc: c.cmc,
+                type_line: c.type_line.clone(),
+                oracle_text: c.oracle_text,
+                colors: c.colors,
+                color_identity: c.color_identity,
+                rarity: c.rarity,
+                is_legal: matches!(c.legalities.brawl.as_str(), "legal"),
+                is_commander,
+                image_small: c.image_uris.small,
+                image_normal: c.image_uris.normal,
+                image_large: c.image_uris.large,
+                image_art_crop: c.image_uris.art_crop,
+                image_border_crop: c.image_uris.border_crop,
+            },
+            ScryfallCard::TwoFace(c) => Self {
+                oracle_id: c.oracle_id,
+                name: c.name,
+                mana_cost: Some(c.card_faces[0].mana_cost.clone()),
+                lang: c.lang,
+                scryfall_uri: c.scryfall_uri,
+                layout: c.layout,
+                // image_uris: c.image_uris,
+                cmc: c.cmc,
+                type_line: c.type_line.clone(),
+                oracle_text: Some(c.card_faces[0].oracle_text.clone()),
+                colors: c.card_faces[0].colors.clone(),
+                color_identity: c.color_identity,
+                rarity: c.rarity,
+                is_legal: matches!(c.legalities.brawl.as_str(), "legal"),
+                is_commander,
+                image_small: c.card_faces[0].image_uris.small.clone(),
+                image_normal: c.card_faces[0].image_uris.normal.clone(),
+                image_large: c.card_faces[0].image_uris.large.clone(),
+                image_art_crop: c.card_faces[0].image_uris.art_crop.clone(),
+                image_border_crop: c.card_faces[0].image_uris.border_crop.clone(),
+            },
         }
     }
 }
