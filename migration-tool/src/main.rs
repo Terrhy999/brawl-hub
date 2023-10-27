@@ -19,11 +19,10 @@ async fn main() {
     if true {
         migrate_scryfall_cards(&pool).await;
     }
-    // let decks = get_aetherhub_decks(40, 80).await;
-    // for deck in decks {
-    //     migrate_aetherhub_decklists(&pool, &deck).await
-    // }
-    // migrate_aetherhub_decklists(&pool, &decks[0]).await;
+    let decks = get_aetherhub_decks(0, 40).await;
+    for deck in decks {
+        migrate_aetherhub_decklists(&pool, &deck).await
+    }
 }
 
 async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck) {
@@ -177,13 +176,27 @@ async fn migrate_scryfall_cards(pool: &Pool<Postgres>) {
     let scryfall_cards: Vec<ScryfallCard> =
         serde_json::from_str(&data).expect("unable to parse JSON");
 
+    const UNWANTED_LAYOUTS: [&str; 10] = [
+        "planar",
+        "scheme",
+        "vanguard",
+        "token",
+        "double_faced_token",
+        "emblem",
+        "augment",
+        "host",
+        "art_series",
+        "reversible_card",
+    ];
+
     let cards = scryfall_cards
         .into_iter()
         .filter(|card| match card {
-            ScryfallCard::Normal(c) => c.layout != "token",
-            ScryfallCard::TwoFace(c) => c.layout != "token",
+            ScryfallCard::Normal(Normal { layout, .. })
+            | ScryfallCard::TwoFace(TwoFace { layout, .. }) => {
+                !UNWANTED_LAYOUTS.contains(&layout.as_str())
+            }
         })
-        // .filter(|card| card.legalities.historicbrawl != "not_legal")
         .map(Card::from)
         .collect::<Vec<Card>>();
 
@@ -464,21 +477,17 @@ struct CardFace {
 }
 
 impl From<ScryfallCard> for Card {
-    fn from(c: ScryfallCard) -> Self {
-        let is_commander = match &c {
-            ScryfallCard::Normal(c) => {
-                c.type_line.to_lowercase().contains("legendary")
-                    && c.type_line.to_lowercase().contains("creature")
-                    || c.type_line.to_lowercase().contains("planeswalker")
-            }
-            ScryfallCard::TwoFace(c) => {
-                c.type_line.to_lowercase().contains("legendary")
-                    && c.type_line.to_lowercase().contains("creature")
-                    || c.type_line.to_lowercase().contains("planeswalker")
+    fn from(card: ScryfallCard) -> Self {
+        let is_commander = match &card {
+            ScryfallCard::Normal(Normal { type_line, .. })
+            | ScryfallCard::TwoFace(TwoFace { type_line, .. }) => {
+                type_line.to_lowercase().contains("legendary")
+                    && type_line.to_lowercase().contains("creature")
+                    || type_line.to_lowercase().contains("planeswalker")
             }
         };
 
-        match c {
+        match card {
             ScryfallCard::Normal(c) => Self {
                 // id: c.id,
                 oracle_id: c.oracle_id,
