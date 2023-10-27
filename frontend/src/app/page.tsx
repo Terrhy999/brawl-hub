@@ -69,7 +69,7 @@ function CardAndRank({i, c} : {i: number, c: Card}) {
     return (
         <div className="flex flex-col items-center">
             <Image className="rounded-[5%] max-h-[340px]" src={c.image_large} alt={c.name} width={244} height={340} />
-            <div className="">
+            <div className="text-center">
                 <div>Rank #{i + 1}</div>
                 <div>{c.count} decks</div>
             </div>
