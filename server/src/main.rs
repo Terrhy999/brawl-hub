@@ -6,7 +6,9 @@ const DATABASE_URL: &str = "postgres://postgres:postgres@localhost/brawlhub";
 
 #[tokio::main]
 async fn main() {
-    let app = Router::new().route("/", get(top_commanders));
+    let app = Router::new()
+        .route("/get_top_commanders", get(top_commanders))
+        .route("/get_top_cards", get(top_cards));
     let addr = SocketAddr::from(([127, 0, 0, 1], 3030));
     println!("Server listening on {addr}");
     axum::Server::bind(&addr)
@@ -60,6 +62,54 @@ async fn top_commanders() -> Json<Vec<CommanderInfo>> {
     .fetch_all(&pool)
     .await
     .expect("error retrieving from db");
+
+    Json(res)
+}
+
+#[derive(Debug, serde::Serialize)]
+struct TopCard {
+    oracle_id: String, // Assuming Uuid is represented as a string
+    name: String,
+    lang: String,
+    scryfall_uri: String,
+    layout: String,
+    mana_cost: Option<String>,
+    cmc: f64,
+    type_line: String,
+    oracle_text: Option<String>,
+    colors: Option<Vec<String>>,
+    color_identity: Vec<String>,
+    is_legal: bool,
+    is_commander: bool,
+    rarity: String,
+    image_small: String,
+    image_normal: String,
+    image_large: String,
+    image_art_crop: String,
+    image_border_crop: String,
+    number_of_decks: Option<i64>,
+}
+
+#[debug_handler]
+async fn top_cards() -> Json<Vec<TopCard>> {
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(DATABASE_URL)
+        .await
+        .expect("Couldn't connect to db");
+
+    let res = sqlx::query_as!(
+        TopCard,
+        "SELECT c.*, COUNT(dl.oracle_id) AS number_of_decks
+    FROM card c
+    LEFT JOIN decklist dl ON c.oracle_id = dl.oracle_id
+    GROUP BY c.oracle_id
+    ORDER BY number_of_decks DESC
+    LIMIT 100;"
+    )
+    .fetch_all(&pool)
+    .await
+    .expect("error querying db");
 
     Json(res)
 }
