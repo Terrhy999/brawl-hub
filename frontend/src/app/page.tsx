@@ -74,7 +74,7 @@ export function ClickableChip({
     onClick?: () => void | undefined;
 }) {
     const activeClass = isActive
-        ? "bg-[rgb(241,241,241)] text-[rgb(15,15,15)] "
+        ? "!bg-[rgb(241,241,241)] text-[rgb(15,15,15)] "
         : "";
     return (
         <button
