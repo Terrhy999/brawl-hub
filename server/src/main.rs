@@ -42,30 +42,7 @@ struct CommanderInfo {
     count: Option<i64>,
 }
 
-#[derive(serde::Serialize)]
-struct Card {
-    oracle_id: String,
-    name: String,
-    lang: String,
-    scryfall_uri: String,
-    layout: String,
-    mana_cost: Option<String>,
-    cmc: f32,
-    type_line: String,
-    oracle_text: Option<String>,
-    colors: Option<Vec<String>>,
-    color_identity: Vec<String>,
-    is_legal: bool,
-    is_commander: bool,
-    rarity: String,
-    image_small: String,
-    image_normal: String,
-    image_large: String,
-    image_art_crop: String,
-    image_border_crop: String,
-}
-
-async fn get_commanders_of_color(Path(id): Path<String>) -> Json<Vec<Card>> {
+async fn get_commanders_of_color(Path(id): Path<String>) -> Json<Vec<CommanderInfo>> {
     // Have to figure out how handle routes that aren't wubrg or colorless
     let mut colors = vec![];
     if id == "colorless" {
@@ -83,8 +60,15 @@ async fn get_commanders_of_color(Path(id): Path<String>) -> Json<Vec<Card>> {
         .expect("Couldn't connect to db");
 
     let res = sqlx::query_as!(
-        Card,
-        "SELECT * FROM card WHERE is_commander = true AND color_identity <@ $1::char(1)[] AND color_identity @> $1::char(1)[];",
+        CommanderInfo,
+        "SELECT c.*, COUNT(d.commander) AS count
+        FROM card c
+        INNER JOIN deck d ON c.oracle_id = d.commander
+        WHERE is_commander = true 
+        AND color_identity <@ $1::char(1)[] 
+        AND color_identity @> $1::char(1)[]
+        GROUP BY c.oracle_id
+        ORDER BY count DESC;",
         &colors
     )
     .fetch_all(&pool)
