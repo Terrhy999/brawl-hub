@@ -38,6 +38,7 @@ type Card = {
 };
 
 export default async function Home() {
+    const activeDateFilter: 'year' | 'month' | 'week'  = 'year';
     const top_commanders: Card[] = await getTopCommanders();
     // const top_cards: TopCard[] = await getTopCards();
     // console.log(top_commanders);
@@ -48,9 +49,9 @@ export default async function Home() {
             <main className="m-10">
                 <h1 className="text-[32px]">Top Commanders</h1>
                 <span className="flex [&>*]:mr-[12px]">
-                    <ClickableChip text={"Week"} />
+                    <ClickableChip text={"Year"} isActive={activeDateFilter === 'year'} />
                     <ClickableChip text={"Month"} />
-                    <ClickableChip text={"Year"} />
+                    <ClickableChip text={"Week"} />
                 </span>
                 <div className="grid gap-[20px] grid-cols-[repeat(auto-fit,minmax(270px,1fr))]">
                     {top_commanders.map((c, i: number) => (
@@ -62,9 +63,10 @@ export default async function Home() {
     );
 }
 
-function ClickableChip({ text }: { text: string }) {
+function ClickableChip({ text, isActive = false }: { text: string, isActive?: boolean }) {
+    const activeClass = isActive ? "bg-[rgb(241,241,241)] text-[rgb(15,15,15)] " : "";
     return (
-        <div className="rounded-[8px] bg-white/[0.1] h-[32px] w-m-[12px] px-[12px] font-medium">{text}</div>
+        <button className={`rounded-[8px] bg-white/[0.1] h-[32px] w-m-[12px] px-[12px] font-medium flex items-center ${activeClass}`}>{text}</button>
     );
 }
 
