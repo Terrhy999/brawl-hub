@@ -16,11 +16,11 @@ async function getCommandersByColorIdentity(
     return commandersOfColors;
 }
 
-export default async function Page({ params }: { params: { colors: string } }) {
+export default async function Page({ params }: { params: { colorIdentity: string } }) {
     console.log("type of window: ", typeof window)
     console.log(params);
     let activeDateFilter = 'year';
-    const top_commanders = await getCommandersByColorIdentity(params.colors);
+    const top_commanders = await getCommandersByColorIdentity(params.colorIdentity);
     return (
         // <div className="bg-[#22262a] text-white">
         <main>
