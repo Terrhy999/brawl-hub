@@ -16,7 +16,20 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className={inter.className}>{children}</body>
+      <body className={`${inter.className} bg-[#0f0f0f] text-white`}>
+        <NavBar />    
+        {children}
+      </body>
     </html>
   );
 }
+
+function NavBar() {
+    return (
+        <header className="h-[56px] bg-[#a2ac94] flex items-center p-4">
+            BrawlRec
+            <nav></nav>
+        </header>
+    );
+}
+

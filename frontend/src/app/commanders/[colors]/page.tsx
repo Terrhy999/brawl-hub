@@ -1,39 +1,26 @@
+import { Card, ClickableChip } from "@/app/page";
 import Image from "next/image";
 
-async function getTopCommanders() {
-    const res = await fetch("http://127.0.0.1:3030/get_top_commanders", {
-        // const res = await fetch("http://127.0.0.1:3030/get_top_commanders", {
-        cache: "no-cache",
-    });
-    return res.json();
+export const dynamicParams = false;
+export async function generateStaticParams() {
+    const commanderColors = ["w", "u", "b", "r", "g", "colorless"];
+    return commanderColors.map((colorIdentity) => ({ colorIdentity }));
 }
 
-export type Card = {
-    oracle_id: string; // Assuming Uuid is represented as a string
-    name: string;
-    lang: string;
-    scryfall_uri: string;
-    layout: string;
-    mana_cost: string | null;
-    cmc: number;
-    type_line: string;
-    oracle_text: string | null;
-    colors: (string | null)[];
-    color_identity: string[];
-    is_legal: boolean;
-    is_commander: boolean;
-    rarity: string;
-    image_small: string;
-    image_normal: string;
-    image_large: string;
-    image_art_crop: string;
-    image_border_crop: string;
-    count?: number | null;
-};
+async function getCommandersByColorIdentity(
+    colorIdentity: string
+): Promise<Card[]> {
+    const commandersOfColors: Card[] = await fetch(
+        `http://127.0.0.1:3030/commanders/${colorIdentity}`
+    ).then((res) => res.json());
+    return commandersOfColors;
+}
 
-export default async function Home() {
+export default async function Page({ params }: { params: { colors: string } }) {
+    console.log("type of window: ", typeof window)
+    console.log(params);
     let activeDateFilter = 'year';
-    const top_commanders: Card[] = await getTopCommanders();
+    const top_commanders = await getCommandersByColorIdentity(params.colors);
     return (
         // <div className="bg-[#22262a] text-white">
         <main>
@@ -56,49 +43,28 @@ export default async function Home() {
             </div>
 
             <div className="grid gap-[20px] grid-cols-[repeat(auto-fit,minmax(270px,1fr))]">
-                {top_commanders.map((c, i: number) => (
-                    <CardAndRank key={i} i={i} c={c} />
+                {top_commanders.map((card, i: number) => (
+                    <CardAndRank key={i} i={i} card={card} />
                 ))}
             </div>
         </main>
     );
 }
 
-export function ClickableChip({
-    text,
-    isActive = false,
-    onClick = undefined,
-}: {
-    text: string;
-    isActive?: boolean;
-    onClick?: () => void | undefined;
-}) {
-    const activeClass = isActive
-        ? "bg-[rgb(241,241,241)] text-[rgb(15,15,15)] "
-        : "";
-    return (
-        <button
-            onClick={onClick}
-            className={`rounded-[8px] bg-white/[0.1] h-[32px] w-m-[12px] px-[12px] font-medium flex items-center ${activeClass}`}
-        >
-            {text}
-        </button>
-    );
-}
-
-function CardAndRank({ i, c }: { i: number; c: Card }) {
+// replace 'i' with count
+function CardAndRank({ i, card }: { i: number; card: Card }) {
     return (
         <div className="flex flex-col items-center">
             <Image
                 className="rounded-[5%] max-h-[340px]"
-                src={c.image_large}
-                alt={c.name}
+                src={card.image_large}
+                alt={card.name}
                 width={244}
                 height={340}
             />
             <div className="text-center">
                 <div>Rank #{i + 1}</div>
-                <div>{c.count} decks</div>
+                <div>{card.count} decks</div>
             </div>
         </div>
     );
