@@ -16,19 +16,16 @@ export default function ColorIdentityFilter({ children }: { children: React.Reac
   const pathname = usePathname()?.split('/')[2] ?? ''
   const colorCombinationName = colorCombinations.find((combo) => pathname === combo.colorIdentity)?.title ?? ''
   useEffect(() => {
-    let navigateTo = ''
     const colorIdentitys = colorCombinations.map((combo) => combo.colorIdentity)
     const sortedCompareString = [...selectedColors].join('').split('').sort().join('')
-    navigateTo =
+    let navigateTo =
       colorIdentitys.find((s) => {
         const sortedIdentitys = s.split('').sort().join('')
         return s.length === sortedCompareString.length && sortedIdentitys === sortedCompareString
       }) ?? ''
-    console.log(navigateTo)
-    router.push(navigateTo)
+    router.push(`/commanders/${navigateTo}`)
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    console.log('Selected colors:', selectedColors)
   }, [selectedColors])
 
   const colors = [
