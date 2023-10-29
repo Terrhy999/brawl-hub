@@ -1,9 +1,8 @@
 import { Card, ClickableChip } from '@/app/page'
 import Image from 'next/image'
-import Link from 'next/link'
 
 export const dynamicParams = false
-const colorCombinations = [
+export const colorCombinations = [
   { colorIdentity: 'w', title: 'Mono-White' },
   { colorIdentity: 'u', title: 'Mono-Blue' },
   { colorIdentity: 'b', title: 'Mono-Black' },
@@ -50,39 +49,15 @@ async function getCommandersByColorIdentity(colorIdentity: string): Promise<Card
 }
 
 export default async function Page({ params }: { params: { colorIdentity: string } }) {
-  const { colorIdentity } = params
-  const colorCombinationName = colorCombinations.find((combo) => colorIdentity === combo.colorIdentity)?.title ?? ''
-  let activeDateFilter = 'year'
+  // const { colorIdentity } = params
   const top_commanders = await getCommandersByColorIdentity(params.colorIdentity)
   return (
     // <div className="bg-[#22262a] text-white">
-    <main>
-      <h1 className="text-[32px]">Top {colorCombinationName} Commanders</h1>
-      <div className="flex justify-between mb-5">
-        {/* Change this to a radio button */}
-        <span className="flex [&>*]:mr-[12px]">
-          <ClickableChip text={'Year'} isActive={activeDateFilter === 'year'} />
-          <ClickableChip text={'Month'} isActive={activeDateFilter === 'month'} />
-          <ClickableChip text={'Week'} isActive={activeDateFilter === 'week'} />
-        </span>
-
-        <div className="flex [&>*]:mr-[20px] [&>a]:opacity-30 [&>*]:duration-[0.3s]">
-          <Link href={'/commanders/w'} className={`${params.colorIdentity === 'w' ? 'opacity-[unset]' : ''}`}>
-            <Image src={'/white-mana-symbol.png'} alt={'White mana'} width={36} height={36} />
-          </Link>
-          <Image src={'/blue-mana-symbol.png'} alt={'Blue mana'} width={36} height={36} />
-          <Image src={'/black-mana-symbol.png'} alt={'Black mana'} width={36} height={36} />
-          <Image src={'/red-mana-symbol.png'} alt={'Red mana'} width={36} height={36} />
-          <Image src={'/green-mana-symbol.png'} alt={'Green mana'} width={36} height={36} />
-        </div>
-      </div>
-
-      <div className="grid gap-[20px] grid-cols-[repeat(auto-fit,minmax(270px,1fr))]">
-        {top_commanders.map((card, i: number) => (
-          <CardAndRank key={i} i={i} card={card} />
-        ))}
-      </div>
-    </main>
+    <div className="grid gap-[20px] grid-cols-[repeat(auto-fit,minmax(270px,1fr))]">
+      {top_commanders.map((card, i: number) => (
+        <CardAndRank key={i} i={i} card={card} />
+      ))}
+    </div>
   )
 }
 
