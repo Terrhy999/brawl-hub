@@ -6,7 +6,7 @@ import { colorCombinations } from './[colorIdentity]/page'
 import { usePathname } from 'next/navigation'
 import { useRouter } from 'next/navigation'
 
-type Colors = 'w' | 'u' | 'b' | 'r' | 'g'
+type Colors = 'w' | 'u' | 'b' | 'r' | 'g' | 'colorless'
 
 export default function ColorIdentityFilter({ children }: { children: React.ReactNode }) {
   let activeDateFilter = 'year'
@@ -15,15 +15,18 @@ export default function ColorIdentityFilter({ children }: { children: React.Reac
   const pathname = usePathname()?.split('/')[2] ?? ''
   const colorCombinationName = colorCombinations.find((combo) => pathname === combo.colorIdentity)?.title ?? ''
   useEffect(() => {
-    const colorIdentitys = colorCombinations.map((combo) => combo.colorIdentity)
-    const sortedCompareString = [...selectedColors].join('').split('').sort().join('')
-    let navigateTo =
-      colorIdentitys.find((s) => {
-        const sortedIdentitys = s.split('').sort().join('')
-        return s.length === sortedCompareString.length && sortedIdentitys === sortedCompareString
-      }) ?? ''
-    router.push(`/commanders/${navigateTo}`)
-
+    if (selectedColors.has('colorless')) {
+      router.push('/commanders/colorless')
+    } else {
+      const colorIdentitys = colorCombinations.map((combo) => combo.colorIdentity)
+      const sortedCompareString = [...selectedColors].join('').split('').sort().join('')
+      let navigateTo =
+        colorIdentitys.find((s) => {
+          const sortedIdentitys = s.split('').sort().join('')
+          return s.length === sortedCompareString.length && sortedIdentitys === sortedCompareString
+        }) ?? ''
+      router.push(`/commanders/${navigateTo}`)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedColors])
 
@@ -50,12 +53,13 @@ export default function ColorIdentityFilter({ children }: { children: React.Reac
             return (
               <button
                 key={i}
-                className={`${pathname.includes(color) ? '!opacity-[unset]' : ''}`}
+                className={`${pathname.includes(color) && pathname != 'colorless' ? '!opacity-[unset]' : ''}`}
                 onClick={() => {
                   if (selectedColors.has(color)) {
                     selectedColors.delete(color)
                     setSelectedColors(new Set([...selectedColors]))
                   } else {
+                    selectedColors.delete('colorless')
                     setSelectedColors(new Set([...selectedColors, color]))
                   }
                 }}
@@ -64,6 +68,22 @@ export default function ColorIdentityFilter({ children }: { children: React.Reac
               </button>
             )
           })}
+          <button className={`${pathname.includes('colorless') ? '!opacity-[unset]' : ''}`} onClick={() => {}}>
+            <Image
+              onClick={() => {
+                if (selectedColors.has('colorless')) {
+                  selectedColors.delete('colorless')
+                  setSelectedColors(new Set([...selectedColors]))
+                } else {
+                  setSelectedColors(new Set(['colorless']))
+                }
+              }}
+              src={'/colorless-mana.png'}
+              alt={'Colorless Mana'}
+              width={36}
+              height={36}
+            />
+          </button>
         </div>
       </div>
       {children}
