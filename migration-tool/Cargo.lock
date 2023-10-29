@@ -1424,6 +1424,7 @@ dependencies = [
  "indexmap 2.0.2",
  "log",
  "memchr",
+ "native-tls",
  "once_cell",
  "paste",
  "percent-encoding",

@@ -6,7 +6,7 @@ use futures::future::join_all;
 use std::fs;
 use uuid::Uuid;
 
-const DATABASE_URL: &str = "postgres://postgres:postgres@localhost/brawlhub";
+const DATABASE_URL: &str = "postgres://default:HbQCUKc28iqz@ep-dark-star-87300762.us-east-1.postgres.vercel-storage.com:5432/verceldb";
 
 #[tokio::main]
 async fn main() {
@@ -16,13 +16,13 @@ async fn main() {
         .await
         .expect("couldn't connect to db");
 
-    if false {
+    if true {
         migrate_scryfall_cards(&pool).await;
     }
-    let decks = get_aetherhub_decks(0, 80).await;
-    for deck in decks {
-        migrate_aetherhub_decklists(&pool, &deck).await
-    }
+    // let decks = get_aetherhub_decks(0, 80).await;
+    // for deck in decks {
+    //     migrate_aetherhub_decklists(&pool, &deck).await
+    // }
 }
 
 async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck) {

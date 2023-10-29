@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT oracle_id, name FROM card WHERE unaccent(name) LIKE unaccent($1)\n            UNION SELECT oracle_id, name FROM card WHERE unaccent(name) LIKE unaccent($2)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "oracle_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "c49e16a2dcea04812817f6dd91f2ad166d994dc33405c0ba49357429a890c845"
+}

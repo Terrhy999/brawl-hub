@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO deck (id, deck_id, url, username, date_created, date_updated, commander)\n        VALUES (DEFAULT, $1, $2, $3, $4, $5, $6)\n        ON CONFLICT (deck_id) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "374f6c3423f9a007e13d0fc7fdbee7db9e25d79769b0e0976cccdd1b881ae4ed"
+}
