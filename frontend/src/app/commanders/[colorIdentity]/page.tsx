@@ -1,5 +1,4 @@
-import { Card } from '@/app/page'
-import Image from 'next/image'
+import CommanderCardGallery, { Card } from '@/app/_components/commander-card-gallery'
 
 export const dynamicParams = false
 export const colorCombinations = [
@@ -49,27 +48,7 @@ async function getCommandersByColorIdentity(colorIdentity: string): Promise<Card
 }
 
 export default async function Page({ params }: { params: { colorIdentity: string } }) {
-  // const { colorIdentity } = params
-  const top_commanders = await getCommandersByColorIdentity(params.colorIdentity)
-  return (
-    // <div className="bg-[#22262a] text-white">
-    <div className="grid gap-[20px] grid-cols-[repeat(auto-fit,minmax(270px,1fr))]">
-      {top_commanders.map((card, i: number) => (
-        <CardAndRank key={i} i={i} card={card} />
-      ))}
-    </div>
-  )
-}
-
-// replace 'i' with count
-function CardAndRank({ i, card }: { i: number; card: Card }) {
-  return (
-    <div className="flex flex-col items-center">
-      <Image className="rounded-[5%] max-h-[340px]" src={card.image_large} alt={card.name} width={244} height={340} />
-      <div className="text-center">
-        <div>Rank #{i + 1}</div>
-        <div>{card.count} decks</div>
-      </div>
-    </div>
-  )
+  const commanders = await getCommandersByColorIdentity(params.colorIdentity)
+  return <CommanderCardGallery commanders={commanders} />
+  // <div className="bg-[#22262a] text-white">
 }
