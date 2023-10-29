@@ -5,7 +5,6 @@ import React, { useEffect, useState } from 'react'
 import { colorCombinations } from './[colorIdentity]/page'
 import { usePathname } from 'next/navigation'
 import { useRouter } from 'next/navigation'
-import { ClickableChip } from '../page'
 
 type Colors = 'w' | 'u' | 'b' | 'r' | 'g'
 
@@ -69,5 +68,25 @@ export default function ColorIdentityFilter({ children }: { children: React.Reac
       </div>
       {children}
     </main>
+  )
+}
+
+export function ClickableChip({
+  text,
+  isActive = false,
+  onClick = undefined,
+}: {
+  text: string
+  isActive?: boolean
+  onClick?: () => void | undefined
+}) {
+  const activeClass = isActive ? '!bg-[rgb(241,241,241)] text-[rgb(15,15,15)] ' : ''
+  return (
+    <button
+      onClick={onClick}
+      className={`rounded-[8px] bg-white/[0.1] h-[32px] w-m-[12px] px-[12px] font-medium flex items-center ${activeClass}`}
+    >
+      {text}
+    </button>
   )
 }

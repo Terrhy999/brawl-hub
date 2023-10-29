@@ -1,4 +1,4 @@
-import { Card, ClickableChip } from '@/app/page'
+import { Card } from '@/app/page'
 import Image from 'next/image'
 
 export const dynamicParams = false
