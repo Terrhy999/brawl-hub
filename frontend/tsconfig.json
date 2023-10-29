@@ -12,7 +12,7 @@
     },
     "module": "esnext",
     "incremental": true,
-    "target": "es5",
+    "target": "ESNext",
     "skipLibCheck": true,
     "lib": [
       "dom",
