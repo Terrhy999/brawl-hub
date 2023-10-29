@@ -9,10 +9,11 @@ async function getTopCommanders() {
   return res.json()
 }
 
+// move this component outside and useit in both pages
 export default async function Page() {
   const top_commanders: Card[] = await getTopCommanders()
   return (
-    <div className="grid gap-[20px] grid-cols-[repeat(auto-fit,minmax(270px,1fr))]">
+    <div className="grid gap-y-[20px] gap-x-[25px] grid-cols-[repeat(auto-fit,minmax(245px,1fr))]">
       {top_commanders.map((c, i: number) => (
         <CardAndRank key={i} i={i} c={c} />
       ))}
