@@ -25,7 +25,9 @@ export default function ColorIdentityFilter({ children }: { children: React.Reac
           const sortedIdentitys = s.split('').sort().join('')
           return s.length === sortedCompareString.length && sortedIdentitys === sortedCompareString
         }) ?? ''
-      router.push(`/commanders/${navigateTo}`)
+      if (navigateTo) {
+        router.push(`/commanders/${navigateTo}`)
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedColors])
@@ -49,6 +51,15 @@ export default function ColorIdentityFilter({ children }: { children: React.Reac
         </span>
 
         <div className="flex [&>*]:mr-[20px] [&>button]:opacity-30 [&>*]:duration-[0.3s]">
+          <button className={`${selectedColors.size > 0 ? '!opacity-[unset]' : ''}`} onClick={() => {}}>
+            <Image
+              onClick={() => setSelectedColors(new Set())}
+              src={'/untap-symbol.svg'}
+              alt={'Colorless Mana'}
+              width={36}
+              height={36}
+            />
+          </button>
           {colors.map(([color, path], i) => {
             return (
               <button
