@@ -10,25 +10,25 @@ type Colors = 'w' | 'u' | 'b' | 'r' | 'g' | 'colorless'
 
 export default function ColorIdentityFilter({ children }: { children: React.ReactNode }) {
   let activeDateFilter = 'year'
-  const [selectedColors, setSelectedColors] = useState(new Set<Colors>())
-  const router = useRouter()
   const pathname = usePathname()?.split('/')[2] ?? ''
+  let alreadySelectedColors: Set<Colors> | undefined = undefined
+  if (pathname === 'colorless') {
+    alreadySelectedColors = new Set<Colors>(['colorless'])
+  } else {
+    alreadySelectedColors = new Set([...(pathname.split('') as Colors[])])
+  }
+  const [selectedColors, setSelectedColors] = useState(new Set<Colors>(alreadySelectedColors))
+  const router = useRouter()
   const colorCombinationName = colorCombinations.find((combo) => pathname === combo.colorIdentity)?.title ?? ''
   useEffect(() => {
-    if (selectedColors.has('colorless')) {
-      router.push('/commanders/colorless')
-    } else {
-      const colorIdentitys = colorCombinations.map((combo) => combo.colorIdentity)
-      const sortedCompareString = [...selectedColors].join('').split('').sort().join('')
-      let navigateTo =
-        colorIdentitys.find((s) => {
-          const sortedIdentitys = s.split('').sort().join('')
-          return s.length === sortedCompareString.length && sortedIdentitys === sortedCompareString
-        }) ?? ''
-      if (navigateTo) {
-        router.push(`/commanders/${navigateTo}`)
-      }
-    }
+    const colorIdentitys = colorCombinations.map((combo) => combo.colorIdentity)
+    const sortedCompareString = [...selectedColors].join('').split('').sort().join('')
+    let navigateTo =
+      colorIdentitys.find((s) => {
+        const sortedIdentitys = s.split('').sort().join('')
+        return s.length === sortedCompareString.length && sortedIdentitys === sortedCompareString
+      }) ?? ''
+    router.push(`/commanders/${navigateTo}`)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedColors])
 
@@ -53,7 +53,10 @@ export default function ColorIdentityFilter({ children }: { children: React.Reac
         <div className="flex [&>*]:mr-[20px] [&>button]:opacity-30 [&>*]:duration-[0.3s]">
           <button className={`${selectedColors.size > 0 ? '!opacity-[unset]' : ''}`} onClick={() => {}}>
             <Image
-              onClick={() => setSelectedColors(new Set())}
+              onClick={() => {
+                setSelectedColors(new Set())
+                router.push('/commanders/')
+              }}
               src={'/untap-symbol.svg'}
               alt={'Colorless Mana'}
               width={36}
@@ -87,6 +90,7 @@ export default function ColorIdentityFilter({ children }: { children: React.Reac
                   setSelectedColors(new Set([...selectedColors]))
                 } else {
                   setSelectedColors(new Set(['colorless']))
+                  router.push('/commanders/colorless')
                 }
               }}
               src={'/colorless-mana.png'}
