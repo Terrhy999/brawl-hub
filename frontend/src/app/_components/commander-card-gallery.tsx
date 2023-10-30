@@ -1,4 +1,5 @@
 import Image from 'next/image'
+import Link from 'next/link'
 
 export type Card = {
   oracle_id: string // Assuming Uuid is represented as a string
@@ -24,10 +25,16 @@ export type Card = {
 }
 
 export default async function CommanderCardGallery({ commanders }: { commanders: Card[] }) {
+  function santisizeName(name: string): string {
+    // Chandra, Dressed To Kill => chandra-dressed-to-kill
+    return name.replaceAll(',', '').replaceAll(' ', '-').toLocaleLowerCase()
+  }
   return (
-    <div className="grid gap-y-[20px] gap-x-[25px] grid-cols-[repeat(auto-fit,minmax(245px,1fr))]">
+    <div className="grid gap-y-[20px] gap-x-[25px] grid-cols-[repeat(auto-fill,minmax(245px,1fr))]">
       {commanders.map((card, i: number) => (
-        <CardAndRank key={i} i={i} card={card} />
+        <Link key={i} href={`commander/${santisizeName(card.name)}`}>
+          <CardAndRank i={i} card={card} />
+        </Link>
       ))}
     </div>
   )

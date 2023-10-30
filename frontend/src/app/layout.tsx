@@ -16,7 +16,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       {/* <body className={`${inter.className} bg-[#141d26] text-white`}> */}
       <body className={`${inter.className} bg-[#1E1E1E] text-white`}>
         <NavBar />
-        {children}
+        <main className="mx-auto">{children}</main>
       </body>
     </html>
   )
