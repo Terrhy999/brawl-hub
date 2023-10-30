@@ -17,6 +17,7 @@ async fn main() {
         .route("/get_top_cards", get(top_cards))
         .route("/all_commanders", get(get_historic_brawl_commanders))
         .route("/commanders/:colors", get(top_commanders_of_color))
+        .route("/commanders/", get(top_commanders_colorless))
         .route(
             "/top_cards_for_commander/:oracle_id",
             get(top_cards_for_commander),
@@ -98,15 +99,47 @@ async fn get_historic_brawl_commanders() -> Json<Vec<Commander>> {
     Json(res)
 }
 
+async fn top_commanders_colorless() -> Json<Vec<CardCount>> {
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(DATABASE_URL)
+        .await
+        .expect("Couldn't connect to db");
+
+    let res = sqlx::query_as!(
+        CardCount,
+        "SELECT c.*, COUNT(d.commander) as count
+    FROM card c
+    LEFT JOIN deck d ON c.oracle_id = d.commander
+    WHERE c.is_commander = TRUE 
+    -- AND c.is_legal=TRUE
+    AND (c.color_identity = '{}'::char(1)[])
+    GROUP BY c.oracle_id
+    ORDER BY count DESC
+    "
+    )
+    .fetch_all(&pool)
+    .await
+    .expect("error retrieving from db");
+
+    Json(res)
+}
+
 async fn top_commanders_of_color(Path(id): Path<String>) -> Json<Vec<CardCount>> {
-    // Have to figure out how handle routes that aren't wubrg or colorless
+    let mut not_colors = vec![
+        "W".to_string(),
+        "U".to_string(),
+        "B".to_string(),
+        "R".to_string(),
+        "G".to_string(),
+    ];
     let mut colors = vec![];
-    if id == "colorless" {
-    } else {
-        for char in id.chars() {
-            colors.push(char.to_uppercase().to_string());
-        }
+
+    for char in id.chars() {
+        not_colors.retain(|x| &char.to_ascii_uppercase().to_string() != x);
+        colors.push(char.to_uppercase().to_string());
     }
+    println!("colors: {:#?} \n not_colors = {:#?}", colors, not_colors);
 
     // println!("{:#?}", colors);
     let pool = PgPoolOptions::new()
@@ -119,13 +152,16 @@ async fn top_commanders_of_color(Path(id): Path<String>) -> Json<Vec<CardCount>>
         CardCount,
         "SELECT c.*, COUNT(d.commander) AS count
         FROM card c
-        INNER JOIN deck d ON c.oracle_id = d.commander
-        WHERE is_commander = true 
-        AND color_identity <@ $1::char(1)[] 
-        AND color_identity @> $1::char(1)[]
+        LEFT JOIN deck d ON c.oracle_id = d.commander
+        WHERE c.is_commander = TRUE
+        -- AND c.is_legal=TRUE
+        AND c.color_identity @> $1::char(1)[]  -- Checks if it contains all colors in 'colors'
+        AND NOT c.color_identity && $2::char(1)[]  -- Checks if it intersects with 'not_colors'
         GROUP BY c.oracle_id
-        ORDER BY count DESC;",
-        &colors
+        ORDER BY count DESC;        
+        ",
+        &colors,
+        &not_colors
     )
     .fetch_all(&pool)
     .await
@@ -208,8 +244,21 @@ struct CommanderTopCard {
     num_decks_total: Option<i64>,
 }
 
+#[derive(Debug, serde::Serialize)]
+struct TopCardsForCommander {
+    creatures: Vec<CommanderTopCard>,
+    instants: Vec<CommanderTopCard>,
+    sorceries: Vec<CommanderTopCard>,
+    utility_artifacts: Vec<CommanderTopCard>,
+    enchantments: Vec<CommanderTopCard>,
+    planeswalkers: Vec<CommanderTopCard>,
+    mana_artifacts: Vec<CommanderTopCard>,
+    lands: Vec<CommanderTopCard>,
+    other: Vec<CommanderTopCard>,
+}
+
 #[debug_handler]
-async fn top_cards_for_commander(Path(oracle_id): Path<String>) -> Json<Vec<CommanderTopCard>> {
+async fn top_cards_for_commander(Path(oracle_id): Path<String>) -> Json<TopCardsForCommander> {
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(DATABASE_URL)
@@ -246,12 +295,66 @@ async fn top_cards_for_commander(Path(oracle_id): Path<String>) -> Json<Vec<Comm
     .await
     .expect("error querying db");
 
-    Json(res)
+    fn is_mana_artifact(card: &CommanderTopCard) -> bool {
+        card.type_line.to_ascii_lowercase().contains("artifact")
+            && card
+                .oracle_text
+                .clone()
+                .expect("missing oracle text")
+                .to_ascii_lowercase()
+                .contains("add")
+            && card
+                .oracle_text
+                .clone()
+                .expect("missing oracle text")
+                .to_ascii_lowercase()
+                .contains("mana")
+    }
+
+    let mut top_cards_sorted = TopCardsForCommander {
+        creatures: vec![],
+        instants: vec![],
+        sorceries: vec![],
+        utility_artifacts: vec![],
+        enchantments: vec![],
+        planeswalkers: vec![],
+        mana_artifacts: vec![],
+        lands: vec![],
+        other: vec![],
+    };
+
+    for card in res {
+        match &card {
+            t if t.type_line.to_ascii_lowercase().contains("creature") => {
+                top_cards_sorted.creatures.push(card)
+            }
+            t if t.type_line.to_ascii_lowercase().contains("instant") => {
+                top_cards_sorted.instants.push(card)
+            }
+            t if t.type_line.to_ascii_lowercase().contains("sorcery") => {
+                top_cards_sorted.sorceries.push(card)
+            }
+            t if t.type_line.to_ascii_lowercase().contains("planeswalker") => {
+                top_cards_sorted.planeswalkers.push(card)
+            }
+            t if t.type_line.to_ascii_lowercase().contains("enchantment") => {
+                top_cards_sorted.enchantments.push(card)
+            }
+            t if t.type_line.to_ascii_lowercase().contains("land") => {
+                top_cards_sorted.lands.push(card)
+            }
+            t if is_mana_artifact(&t) => top_cards_sorted.mana_artifacts.push(card),
+            t if t.type_line.to_ascii_lowercase().contains("artifact") => {
+                top_cards_sorted.utility_artifacts.push(card)
+            }
+            _ => top_cards_sorted.other.push(card),
+        };
+    }
+
+    Json(top_cards_sorted)
 }
 
-async fn top_cards_for_color_identity(
-    Path(oracle_id): Path<String>,
-) -> Json<Vec<CommanderTopCard>> {
+async fn top_cards_for_color_identity(Path(oracle_id): Path<String>) -> Json<TopCardsForCommander> {
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(DATABASE_URL)
@@ -290,5 +393,61 @@ async fn top_cards_for_color_identity(
     .await
     .expect("couldn't query db");
 
-    Json(res)
+    fn is_mana_artifact(card: &CommanderTopCard) -> bool {
+        card.type_line.to_ascii_lowercase().contains("artifact")
+            && card
+                .oracle_text
+                .clone()
+                .expect("missing oracle text")
+                .to_ascii_lowercase()
+                .contains("add")
+            && card
+                .oracle_text
+                .clone()
+                .expect("missing oracle text")
+                .to_ascii_lowercase()
+                .contains("mana")
+    }
+
+    let mut top_cards_sorted = TopCardsForCommander {
+        creatures: vec![],
+        instants: vec![],
+        sorceries: vec![],
+        utility_artifacts: vec![],
+        enchantments: vec![],
+        planeswalkers: vec![],
+        mana_artifacts: vec![],
+        lands: vec![],
+        other: vec![],
+    };
+
+    for card in res {
+        match &card {
+            t if t.type_line.to_ascii_lowercase().contains("creature") => {
+                top_cards_sorted.creatures.push(card)
+            }
+            t if t.type_line.to_ascii_lowercase().contains("instant") => {
+                top_cards_sorted.instants.push(card)
+            }
+            t if t.type_line.to_ascii_lowercase().contains("sorcery") => {
+                top_cards_sorted.sorceries.push(card)
+            }
+            t if t.type_line.to_ascii_lowercase().contains("planeswalker") => {
+                top_cards_sorted.planeswalkers.push(card)
+            }
+            t if t.type_line.to_ascii_lowercase().contains("enchantment") => {
+                top_cards_sorted.enchantments.push(card)
+            }
+            t if t.type_line.to_ascii_lowercase().contains("land") => {
+                top_cards_sorted.lands.push(card)
+            }
+            t if is_mana_artifact(&t) => top_cards_sorted.mana_artifacts.push(card),
+            t if t.type_line.to_ascii_lowercase().contains("artifact") => {
+                top_cards_sorted.utility_artifacts.push(card)
+            }
+            _ => top_cards_sorted.other.push(card),
+        };
+    }
+
+    Json(top_cards_sorted)
 }
