@@ -2,3 +2,4 @@
 migration-tool/oracle-cards.json
 .env
 pgdata
+server/query
