@@ -13,18 +13,18 @@ const DATABASE_URL: &str = "postgres://postgres:postgres@localhost/brawlhub";
 #[tokio::main]
 async fn main() {
     let app = Router::new()
-        .route("/get_top_commanders", get(top_commanders))
-        .route("/get_top_cards", get(top_cards))
-        .route("/all_commanders", get(get_historic_brawl_commanders))
+        .route("/commanders/", get(top_commanders))
         .route("/commanders/:colors", get(top_commanders_of_color))
-        .route("/commanders/", get(top_commanders_colorless))
+        .route("/commanders/colorless", get(top_commanders_colorless))
+        .route("/top_cards", get(top_cards))
+        .route("/top_cards/:colors", get(top_cards_of_color))
         .route(
             "/top_cards_for_commander/:oracle_id",
             get(top_cards_for_commander),
         )
         .route(
             "/top_cards_for_color_identity/:oracle_id",
-            get(top_cards_for_color_identity),
+            get(top_cards_for_color_identity_of_commander),
         );
     let addr = SocketAddr::from(([127, 0, 0, 1], 3030));
     println!("Server listening on {addr}");
@@ -81,23 +81,23 @@ struct Commander {
     image_border_crop: String,
 }
 
-async fn get_historic_brawl_commanders() -> Json<Vec<Commander>> {
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect(DATABASE_URL)
-        .await
-        .expect("Couldn't connect to db");
+// async fn get_historic_brawl_commanders() -> Json<Vec<Commander>> {
+//     let pool = PgPoolOptions::new()
+//         .max_connections(5)
+//         .connect(DATABASE_URL)
+//         .await
+//         .expect("Couldn't connect to db");
 
-    let res = sqlx::query_as!(
-        Commander,
-        "SELECT * FROM card WHERE is_commander = true AND is_legal",
-    )
-    .fetch_all(&pool)
-    .await
-    .expect("error retrieving from db");
+//     let res = sqlx::query_as!(
+//         Commander,
+//         "SELECT * FROM card WHERE is_commander = true AND is_legal",
+//     )
+//     .fetch_all(&pool)
+//     .await
+//     .expect("error retrieving from db");
 
-    Json(res)
-}
+//     Json(res)
+// }
 
 async fn top_commanders_colorless() -> Json<Vec<CardCount>> {
     let pool = PgPoolOptions::new()
@@ -123,6 +123,52 @@ async fn top_commanders_colorless() -> Json<Vec<CardCount>> {
     .expect("error retrieving from db");
 
     Json(res)
+}
+
+async fn top_cards_of_color(Path(id): Path<String>) -> Json<Vec<CommanderTopCard>> {
+    let mut not_colors = vec![
+        "W".to_string(),
+        "U".to_string(),
+        "B".to_string(),
+        "R".to_string(),
+        "G".to_string(),
+    ];
+    let mut colors = vec![];
+
+    for char in id.chars() {
+        not_colors.retain(|x| &char.to_ascii_uppercase().to_string() != x);
+        colors.push(char.to_uppercase().to_string());
+    }
+
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(DATABASE_URL)
+        .await
+        .expect("Couldn't connect to db");
+
+    let res = sqlx::query_as!(CommanderTopCard, 
+        "WITH DecksWithCommanderColor AS (
+            SELECT d.id
+            FROM deck d
+            WHERE EXISTS (
+                SELECT 1
+                FROM card c
+                WHERE d.commander = c.oracle_id
+                AND (c.color_identity @> $1::char(1)[])
+                AND NOT (c.color_identity && $2::char(1)[])
+            )
+        )
+        SELECT c.*,
+               (SELECT COUNT(*) FROM DecksWithCommanderColor) AS num_decks_total,
+               (SELECT COUNT(*) FROM DecksWithCommanderColor dc
+                WHERE dc.id IN (SELECT dl.deck_id FROM decklist dl WHERE dl.oracle_id = c.oracle_id)) AS num_decks_with_card
+        FROM card c
+        WHERE c.is_commander = TRUE
+        AND (c.color_identity @> $1::char(1)[])
+        AND NOT (c.color_identity && $2::char(1)[])
+        ORDER BY num_decks_with_card DESC;        
+        ", &colors, &not_colors).fetch_all(&pool).await.expect("error with db");
+        Json(res)
 }
 
 async fn top_commanders_of_color(Path(id): Path<String>) -> Json<Vec<CardCount>> {
@@ -182,10 +228,10 @@ async fn top_commanders() -> Json<Vec<CardCount>> {
         CardCount,
         "SELECT c.*, COUNT(d.commander) AS count
         FROM card c
-        INNER JOIN deck d ON c.oracle_id = d.commander
+        LEFT JOIN deck d ON c.oracle_id = d.commander
+        WHERE c.is_commander = TRUE
         GROUP BY c.oracle_id
-        ORDER BY count DESC
-        LIMIT 100;        
+        ORDER BY count DESC;        
         "
     )
     .fetch_all(&pool)
@@ -206,11 +252,10 @@ async fn top_cards() -> Json<Vec<CardCount>> {
     let res = sqlx::query_as!(
         CardCount,
         "SELECT c.*, COUNT(dl.oracle_id) AS count
-    FROM card c
-    LEFT JOIN decklist dl ON c.oracle_id = dl.oracle_id
-    GROUP BY c.oracle_id
-    ORDER BY count DESC
-    LIMIT 100;"
+        FROM card c
+        LEFT JOIN decklist dl ON c.oracle_id = dl.oracle_id
+        GROUP BY c.oracle_id
+        ORDER BY count DESC;"
     )
     .fetch_all(&pool)
     .await
@@ -354,7 +399,9 @@ async fn top_cards_for_commander(Path(oracle_id): Path<String>) -> Json<TopCards
     Json(top_cards_sorted)
 }
 
-async fn top_cards_for_color_identity(Path(oracle_id): Path<String>) -> Json<TopCardsForCommander> {
+async fn top_cards_for_color_identity_of_commander(
+    Path(oracle_id): Path<String>,
+) -> Json<TopCardsForCommander> {
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(DATABASE_URL)
