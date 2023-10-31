@@ -61,7 +61,7 @@ async function getAllCommanders(): Promise<Card[]> {
   //   (res) => res.json()
   // )
   // console.log(yo)
-  return await fetch(`http://127.0.0.1:3030/all_commanders`).then((res) => res.json())
+  return await fetch(`http://127.0.0.1:3030/commanders/`).then((res) => res.json())
 }
 
 export default async function Page({ params }: { params: { commander: string } }) {
