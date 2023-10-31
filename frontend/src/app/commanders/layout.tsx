@@ -126,7 +126,7 @@ export function ClickableChip({
   const button = (
     <button
       onClick={onClick}
-      className={`rounded-[8px] bg-white/[0.1] h-[32px] w-m-[12px] px-[12px] font-medium flex items-center ${activeClass} ${className}`}
+      className={`rounded-[8px] bg-white/[0.1] h-[32px] w-m-[12px] px-[12px] font-medium ${activeClass} ${className}`}
     >
       {text}
     </button>

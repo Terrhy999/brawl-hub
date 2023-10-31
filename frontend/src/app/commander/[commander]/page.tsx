@@ -100,9 +100,9 @@ export default async function Page({ params }: { params: { commander: string } }
 
       {/* maybe use semantic html for this */}
       <div className="max-w-[85%] mx-auto">
-        <div className="flex sticky top-0 max-w-[1258px]">
+        <div className="sticky top-0 bg-[#1E1E1E] h-100 py-4">
           {sections.map((section, i) => (
-            <ClickableChip key={i} className="mr-auto" text={section} href={`#${section.replace(' ', '_')}`} />
+            <ClickableChip key={i} className="mr-1 mb-2" text={section} href={`#${section.replace(' ', '_')}`} />
           ))}
         </div>
         <Section>
@@ -139,7 +139,7 @@ function Section({ children }: { children?: React.ReactNode }) {
     <>
       {sections.map((section, i) => (
         <>
-          <h3 key={i} id={section.replace(' ', '_')} className="text-3xl my-4 scroll-mt-11">
+          <h3 key={i} id={section.replace(' ', '_')} className="text-3xl my-4 scroll-mt-16">
             <Link href={`#${section.replace(' ', '_')}`}># {section}</Link>
           </h3>
           {children}
