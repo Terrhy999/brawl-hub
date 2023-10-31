@@ -30,7 +30,7 @@ export default async function CommanderCardGallery({ commanders }: { commanders:
     return name.replaceAll(',', '').replaceAll(' ', '-').toLocaleLowerCase()
   }
   return (
-    <div className="grid gap-y-[20px] gap-x-[25px] grid-cols-[repeat(auto-fill,minmax(245px,1fr))]">
+    <div className="grid gap-y-5 grid-cols-[repeat(auto-fill,minmax(245px,1fr))]">
       {commanders.map((card, i: number) => (
         <Link key={i} href={`commander/${santisizeName(card.name)}`}>
           <CardAndRank i={i} card={card} />

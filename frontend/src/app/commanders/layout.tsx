@@ -5,6 +5,7 @@ import React, { useEffect, useState } from 'react'
 import { colorCombinations } from './[colorIdentity]/page'
 import { usePathname } from 'next/navigation'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 
 type Colors = 'w' | 'u' | 'b' | 'r' | 'g' | 'colorless'
 
@@ -40,16 +41,16 @@ export default function ColorIdentityFilter({ children }: { children: React.Reac
     ['g', '/green-mana-symbol.png'],
   ] as const
   return (
-    // <main className="max-w-[75%] mx-auto">
-    <>
+    <main className="max-w-[85%] mx-auto">
+      {/* <> */}
       <h1 className="text-[32px]">Top {colorCombinationName} Commanders</h1>
       <div className="flex justify-between mb-5">
         {/* Change this to a radio button */}
-        <span className="flex [&>*]:mr-[12px]">
+        {/* <span className="flex [&>*]:mr-[12px]">
           <ClickableChip text={'Year'} isActive={activeDateFilter === 'year'} />
           <ClickableChip text={'Month'} isActive={activeDateFilter === 'month'} />
           <ClickableChip text={'Week'} isActive={activeDateFilter === 'week'} />
-        </span>
+        </span> */}
 
         <div className="flex [&>*]:mr-[20px] [&>button]:opacity-30 [&>*]:duration-[0.3s]">
           <button className={`${selectedColors.size > 0 ? '!opacity-[unset]' : ''}`} onClick={() => {}}>
@@ -103,26 +104,41 @@ export default function ColorIdentityFilter({ children }: { children: React.Reac
         </div>
       </div>
       {children}
-    </>
+      {/* </> */}
+    </main>
   )
 }
 
 export function ClickableChip({
   text,
   isActive = false,
+  href = '',
   onClick = undefined,
+  className = '',
 }: {
   text: string
   isActive?: boolean
+  href?: string
   onClick?: () => void | undefined
+  className?: string
 }) {
   const activeClass = isActive ? '!bg-[rgb(241,241,241)] text-[rgb(15,15,15)] ' : ''
-  return (
+  const button = (
     <button
       onClick={onClick}
-      className={`rounded-[8px] bg-white/[0.1] h-[32px] w-m-[12px] px-[12px] font-medium flex items-center ${activeClass}`}
+      className={`rounded-[8px] bg-white/[0.1] h-[32px] w-m-[12px] px-[12px] font-medium flex items-center ${activeClass} ${className}`}
     >
       {text}
     </button>
   )
+
+  if (href) {
+    return (
+      <Link href={href} className={`${className}`}>
+        {button}
+      </Link>
+    )
+  }
+
+  return button
 }

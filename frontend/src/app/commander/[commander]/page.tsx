@@ -1,5 +1,7 @@
 import { Card } from '@/app/_components/commander-card-gallery'
+import { ClickableChip } from '@/app/commanders/layout'
 import Image from 'next/image'
+import Link from 'next/link'
 import React from 'react'
 
 export const dynamicParams = false
@@ -63,24 +65,30 @@ async function getAllCommanders(): Promise<Card[]> {
 }
 
 export default async function Page({ params }: { params: { commander: string } }) {
+  const sections = [
+    'Top Cards',
+    'Creatures',
+    'Instants',
+    'Sorceries',
+    'Utillity Artifacts',
+    'Enchantments',
+    'Planeswalkers',
+    'Utility Lands',
+    'Mana Artifacts',
+    'Lands',
+  ] as const
   const cards: string[] = new Array(20)
   const max = Math.floor(Math.random() * 20)
-  cards.fill(commander.image_large, 0, 8)
-  const artCrop = "bg-[url('" + commander.image_art_crop + "')]"
+  cards.fill(commander.image_large, 0, 13)
+  const artCrop = 'bg-[url(' + commander.image_art_crop + ')]'
+  // const artCrop =
+  //   'bg-[url(https://cards.scryfall.io/art_crop/front/7/1/7129a358-4628-4426-ae3b-e3d9288a6355.jpg?1643597140)]'
   return (
     <>
-      <div>
-        <div className={`absolute blur-sm bg-cover ${artCrop} w-full h-[442px]`}></div>
-        {/* <div className={`absolute blur-sm bg-cover ${artCrop} w-full h-[400px]`}></div> */}
-        <div className="relative z-40 max-w-[75%] m-auto pt-[120px] flex">
-          {/* <Image className="rounded-[5%]" src={commander.image_large} alt={commander.name} width={244} height={340} /> */}
-          <Image
-            className="rounded-[5%] mr-5"
-            src={commander.image_large}
-            alt={commander.name}
-            width={336}
-            height={468}
-          />
+      {/* <div>
+        <div className={`absolute blur-md bg-cover ${artCrop} w-full h-[442px]`}></div>
+        <div className="relative z-40 max-w-[85%] pt-20 m-auto flex">
+          <Card className="mr-5" card={commander} size="large" />
           <div className="mt-5 text-black">
             <h2 className="text-4xl">{commander.name}</h2>
             <div>Rank #</div>
@@ -88,15 +96,21 @@ export default async function Page({ params }: { params: { commander: string } }
             <div>{commander.count} decks (%) of Decks with this Color Identity</div>
           </div>
         </div>
-      </div>
+</div> */}
 
       {/* maybe use semantic html for this */}
-      <div className="max-w-[75%] m-auto">
+      <div className="max-w-[85%] mx-auto">
+        <div className="flex sticky top-0 max-w-[1258px]">
+          {sections.map((section, i) => (
+            <ClickableChip key={i} className="mr-auto" text={section} href={`#${section.replace(' ', '_')}`} />
+          ))}
+        </div>
         <Section>
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(245px,1fr))] mb-5">
-            {cards.map((card, i) => (
-              <div key={i}>
-                <Image className="rounded-[5%]" src={card} alt={card} width={244} height={340} />
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(245px,1fr))] gap-y-5">
+            {cards.map((_, i) => (
+              // <div key={i} className="max-w-[245px] text-center">
+              <div key={i} className="mx-auto text-center">
+                <Card card={commander} />
                 <div>{commander.count}% of decks</div>
                 <div>+15% synergy</div>
               </div>
@@ -125,12 +139,34 @@ function Section({ children }: { children?: React.ReactNode }) {
     <>
       {sections.map((section, i) => (
         <>
-          <h3 key={i} className="text-3xl mb-4">
-            {section}
+          <h3 key={i} id={section.replace(' ', '_')} className="text-3xl my-4 scroll-mt-11">
+            <Link href={`#${section.replace(' ', '_')}`}># {section}</Link>
           </h3>
           {children}
         </>
       ))}
     </>
+  )
+}
+
+function Card({
+  card,
+  className = '',
+  size = 'normal',
+}: {
+  card: Card
+  className?: string
+  size?: 'normal' | 'large'
+}) {
+  const width = size === 'normal' ? 244 : 336
+  const height = size === 'normal' ? 340 : 468
+  return (
+    <Image
+      className={`rounded-[5%] ${className}`}
+      src={card.image_large}
+      alt={card.name}
+      width={width}
+      height={height}
+    />
   )
 }
