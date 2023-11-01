@@ -22,17 +22,14 @@ export type Card = {
   image_art_crop: string
   image_border_crop: string
   count?: number | null
+  slug: string
 }
 
 export default async function CommanderCardGallery({ commanders }: { commanders: Card[] }) {
-  function santisizeName(name: string): string {
-    // Chandra, Dressed To Kill => chandra-dressed-to-kill
-    return name.replaceAll(',', '').replaceAll(' ', '-').toLocaleLowerCase()
-  }
   return (
     <div className="grid gap-y-5 grid-cols-[repeat(auto-fill,minmax(245px,1fr))]">
       {commanders.map((card, i: number) => (
-        <Link key={i} href={`commander/${santisizeName(card.name)}`}>
+        <Link key={i} href={`commander/${card.slug}`}>
           <CardAndRank i={i} card={card} />
         </Link>
       ))}
