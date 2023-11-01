@@ -56,7 +56,18 @@ export default async function Page({ params }: { params: { commander: string } }
   ] as const
   return (
     <>
-      {/* <div className="sticky top-0 bg-[#1E1E1E] h-100 py-4 max-w-[85%] mx-auto"> */}
+      <div
+        style={{ ['--image-url' as any]: `url(${commanderCard.image_art_crop})` }}
+        className={`absolute blur-md bg-cover w-full h-[442px] bg-[image:var(--image-url)]`}
+      ></div>
+      <div className="text-center z-40 relative">
+        <h2 className="text-4xl">{commanderCard.name}</h2>
+        <Card className="mx-auto my-2" card={commanderCard} size="large" />
+        <div>{commanderCard.count} decks (%) of Decks with this Color Identity</div>
+        <div>{commanderCard.count} decks (%) of ALL Decks</div>
+        <div>Rank #</div>
+      </div>
+
       <nav className="bg-[#1E1E1E] sticky top-0 flex overflow-auto py-[10px] lg:max-w-[85%] lg:mx-auto">
         {sections.map((section, i) => (
           <ClickableChip key={i} className="mr-1" text={section[0]} href={`#${section[1]}`} />
@@ -112,52 +123,3 @@ function Card({
     />
   )
 }
-
-// export default async function Page({ params }: { params: { commander: string } }) {
-// const cards: string[] = new Array(20)
-// const max = Math.floor(Math.random() * 20)
-// cards.fill(commander.image_large, 0, 13)
-// const artCrop = 'bg-[url(' + commander.image_art_crop + ')]'
-// // const artCrop =
-// //   'bg-[url(https://cards.scryfall.io/art_crop/front/7/1/7129a358-4628-4426-ae3b-e3d9288a6355.jpg?1643597140)]'
-// return (
-//   <>
-//     {/* <div>
-//       <div className={`absolute blur-md bg-cover ${artCrop} w-full h-[442px]`}></div>
-//       <div className="relative z-40 max-w-[85%] pt-20 m-auto flex">
-//         <Card className="mr-5" card={commander} size="large" />
-//         <div className="mt-5 text-black">
-//           <h2 className="text-4xl">{commander.name}</h2>
-//           <div>Rank #</div>
-//           <div>{commander.count} decks (%) of ALL Decks</div>
-//           <div>{commander.count} decks (%) of Decks with this Color Identity</div>
-//         </div>
-//       </div>
-//     </div> */}
-
-//     {/* maybe use semantic html for this */}
-//     <div className="sticky top-0 bg-[#1E1E1E] h-100 py-4 max-w-[85%] mx-auto">
-//       {sections.map((section, i) => (
-//         <ClickableChip key={i} className="mr-1 mb-2" text={section} href={`#${section.replace(' ', '_')}`} />
-//       ))}
-//     </div>
-//     <div className="max-w-[85%] mx-auto">
-//       <Section>
-//         <div className="grid grid-cols-[repeat(auto-fill,minmax(245px,1fr))] gap-y-5">
-//           {/* {topCardsArr.map((top, i) => (
-//             <div key={i}>{topCards?.[top]?.map((card, i) => <Card key={i} card={card} />)}</div>
-//           ))} */}
-//           {/* {cards.map((_, i) => (
-//             // <div key={i} className="max-w-[245px] text-center">
-//             <div key={i} className="mx-auto text-center">
-//               <Card card={commander} />
-//               <div>{commander.count}% of decks</div>
-//               <div>+15% synergy</div>
-//             </div>
-//           ))} */}
-//         </div>
-//       </Section>
-//     </div>
-//   </>
-// )
-// }
