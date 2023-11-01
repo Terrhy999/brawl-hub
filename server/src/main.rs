@@ -28,6 +28,7 @@ async fn main() {
 
     let app = Router::new()
         .route("/commander_slugs", get(commander_slugs))
+        .route("/commander/:slug", get(commander_by_slug))
         .route("/commanders/", get(top_commanders))
         .route("/commanders/:colors", get(top_commanders_of_color))
         // .route("/commanders/:colors/:time", get(top_commanders_of_color_time))
@@ -76,27 +77,38 @@ struct CardCount {
     slug: Option<String>,
 }
 
-#[derive(serde::Serialize)]
-struct Commander {
-    oracle_id: String,
-    name: String,
-    lang: String,
-    scryfall_uri: String,
-    layout: String,
-    mana_cost: Option<String>,
-    cmc: f32,
-    type_line: String,
-    oracle_text: Option<String>,
-    colors: Option<Vec<String>>,
-    color_identity: Vec<String>,
-    is_legal: bool,
-    is_commander: bool,
-    rarity: String,
-    image_small: String,
-    image_normal: String,
-    image_large: String,
-    image_art_crop: String,
-    image_border_crop: String,
+// #[derive(serde::Serialize)]
+// struct Commander {
+//     oracle_id: String,
+//     name: String,
+//     lang: String,
+//     scryfall_uri: String,
+//     layout: String,
+//     mana_cost: Option<String>,
+//     cmc: f32,
+//     type_line: String,
+//     oracle_text: Option<String>,
+//     colors: Option<Vec<String>>,
+//     color_identity: Vec<String>,
+//     is_legal: bool,
+//     is_commander: bool,
+//     rarity: String,
+//     image_small: String,
+//     image_normal: String,
+//     image_large: String,
+//     image_art_crop: String,
+//     image_border_crop: String,
+// }
+
+async fn commander_by_slug(State(AppState{pool}): State<AppState>, Path(slug): Path<String>) -> Json<CardCount> {
+    let res = sqlx::query_as!(CardCount, 
+        "SELECT c.*, COUNT(d.*)
+        FROM card c
+        LEFT JOIN deck d
+        ON c.oracle_id = d.commander
+        WHERE slug = $1
+        GROUP BY c.oracle_id;", slug).fetch_one(&pool).await.expect("couldn't fetch commander by slug");
+    Json(res)
 }
 
 async fn commander_slugs(State(AppState{pool}): State<AppState>) -> Json<Vec<Option<String>>> {
