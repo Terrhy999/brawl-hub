@@ -14,4 +14,4 @@ serde = {version = "1.0.188", features = ["derive"]}
 sqlx = { version = "0.7", features = [ "runtime-tokio", "uuid", "postgres", "macros" ] }
 uuid = {version = "1.5.0", features = ["v4"]}
 futures = "0.3.28"
-
+slug = "0.1.4"

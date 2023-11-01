@@ -1,5 +1,6 @@
 // use postgres::{Client, NoTls};
 use serde::{Deserialize, Serialize};
+use slug::slugify;
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
 // use sqlx::types::Uuid;
 use futures::future::join_all;
@@ -16,13 +17,69 @@ async fn main() {
         .await
         .expect("couldn't connect to db");
 
-    if false {
-        migrate_scryfall_cards(&pool).await;
+    add_card_slug(&pool).await;
+    // if false {
+    //     migrate_scryfall_cards(&pool).await;
+    // }
+    // let decks = get_aetherhub_decks(0, 80).await;
+    // for deck in decks {
+    //     migrate_aetherhub_decklists(&pool, &deck).await
+    // }
+}
+
+async fn add_card_slug(pool: &Pool<Postgres>) {
+    // sqlx::query!("ALTER TABLE IF NOT EXISTS card ADD COLUMN slug text;")
+    //     .execute(pool)
+    //     .await
+    //     .expect("couldn't create slug column on card");
+
+    let all_cards = sqlx::query_as!(Card, "SELECT oracle_id, name, lang, scryfall_uri, layout, mana_cost, cmc, type_line, oracle_text, colors, is_legal, is_commander, rarity, image_small, image_normal, image_large, image_art_crop, image_border_crop, color_identity, slug FROM card")
+        .fetch_all(pool)
+        .await
+        .expect("couldn't select all cards");
+
+    // println!("{:#?}", all_cards);
+
+    for card in all_cards {
+        println!("{}", card.name);
+        let slug = slugify(card.name);
+        sqlx::query!(
+            "UPDATE card SET slug = $1 WHERE oracle_id = $2",
+            slug,
+            Uuid::parse_str(&card.oracle_id).expect("couldn't parse uuid")
+        )
+        .execute(pool)
+        .await
+        .expect("couldn't update card slug");
     }
-    let decks = get_aetherhub_decks(0, 80).await;
-    for deck in decks {
-        migrate_aetherhub_decklists(&pool, &deck).await
-    }
+
+    // let data = fs::read_to_string("oracle-cards.json").expect("unable to read JSON");
+    // let scryfall_cards: Vec<ScryfallCard> =
+    //     serde_json::from_str(&data).expect("unable to parse JSON");
+
+    // const UNWANTED_LAYOUTS: [&str; 10] = [
+    //     "planar",
+    //     "scheme",
+    //     "vanguard",
+    //     "token",
+    //     "double_faced_token",
+    //     "emblem",
+    //     "augment",
+    //     "host",
+    //     "art_series",
+    //     "reversible_card",
+    // ];
+
+    // let cards = scryfall_cards
+    //     .into_iter()
+    //     .filter(|card| match card {
+    //         ScryfallCard::Normal(Normal { layout, .. })
+    //         | ScryfallCard::TwoFace(TwoFace { layout, .. }) => {
+    //             !UNWANTED_LAYOUTS.contains(&layout.as_str())
+    //         }
+    //     })
+    //     .map(Card::from)
+    //     .collect::<Vec<Card>>();
 }
 
 async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck) {
@@ -420,6 +477,7 @@ struct Card {
     image_large: String,
     image_art_crop: String,
     image_border_crop: String,
+    slug: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -474,6 +532,7 @@ struct CardFace {
     oracle_text: String,
     colors: Option<Vec<String>>,
     image_uris: CardImages,
+    name: String,
 }
 
 impl From<ScryfallCard> for Card {
@@ -491,7 +550,7 @@ impl From<ScryfallCard> for Card {
             ScryfallCard::Normal(c) => Self {
                 // id: c.id,
                 oracle_id: c.oracle_id,
-                name: c.name,
+                name: c.name.clone(),
                 mana_cost: c.mana_cost,
                 lang: c.lang,
                 scryfall_uri: c.scryfall_uri,
@@ -510,6 +569,7 @@ impl From<ScryfallCard> for Card {
                 image_large: c.image_uris.large,
                 image_art_crop: c.image_uris.art_crop,
                 image_border_crop: c.image_uris.border_crop,
+                slug: Some(slug::slugify(c.name.clone())),
             },
             ScryfallCard::TwoFace(c) => Self {
                 oracle_id: c.oracle_id,
@@ -532,6 +592,7 @@ impl From<ScryfallCard> for Card {
                 image_large: c.card_faces[0].image_uris.large.clone(),
                 image_art_crop: c.card_faces[0].image_uris.art_crop.clone(),
                 image_border_crop: c.card_faces[0].image_uris.border_crop.clone(),
+                slug: Some(slug::slugify(c.card_faces[0].name.clone())),
             },
         }
     }
