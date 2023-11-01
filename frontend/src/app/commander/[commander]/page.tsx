@@ -5,28 +5,6 @@ import Link from 'next/link'
 import React from 'react'
 
 export const dynamicParams = false
-// const commander: Card = {
-//   color_identity: ['R'],
-//   cmc: 3,
-//   name: 'Chandra, Dressed To Kill',
-//   colors: ['R'],
-//   image_art_crop: 'https://cards.scryfall.io/art_crop/front/7/1/7129a358-4628-4426-ae3b-e3d9288a6355.jpg?1643597140',
-//   image_border_crop: '',
-//   image_large: 'https://cards.scryfall.io/large/front/7/1/7129a358-4628-4426-ae3b-e3d9288a6355.jpg?1643597140',
-//   image_normal: 'https://cards.scryfall.io/large/front/7/1/7129a358-4628-4426-ae3b-e3d9288a6355.jpg?1643597140',
-//   image_small: 'https://cards.scryfall.io/large/front/7/1/7129a358-4628-4426-ae3b-e3d9288a6355.jpg?1643597140',
-//   is_commander: true,
-//   is_legal: true,
-//   lang: 'eng',
-//   layout: 'normal',
-//   mana_cost: '1RR',
-//   oracle_id: '4686f776-2055-470c-bd99-7c4bb32902c0',
-//   oracle_text: 'o',
-//   rarity: 'mythic',
-//   scryfall_uri: '',
-//   type_line: 'Legendary Planeswalker - Chandra',
-//   count: 10,
-// }
 
 type TopCard = Card & { num_decks_with_card: number; num_decks_total: number }
 
@@ -77,62 +55,65 @@ export default async function Page({ params }: { params: { commander: string } }
     ['Lands', 'lands'],
   ] as const
   return (
-    <div className="max-w-[85%] mx-auto">
-      {sections.map(([title, prop], i) => (
-        <div key={i}>
-          <h3 id={prop} className="text-3xl my-4 scroll-mt-16">
-            <Link href={`#${prop}`}>
-              # {title} ({topCards?.[prop]?.length ?? 0})
-            </Link>
-          </h3>
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(245px,1fr))] gap-y-5">
-            {topCards?.[prop]?.map((card, i) => (
-              <div key={i} className="mx-auto text-center">
-                <Card card={card} />
-                <div>
-                  {getPercentage(card.num_decks_with_card, commanderCard?.count ?? 1)}% of {commanderCard.count} decks
+    <>
+      {/* <div className="sticky top-0 bg-[#1E1E1E] h-100 py-4 max-w-[85%] mx-auto"> */}
+      <nav className="bg-[#1E1E1E] sticky top-0 flex overflow-auto py-[10px] lg:max-w-[85%] lg:mx-auto">
+        {sections.map((section, i) => (
+          <ClickableChip key={i} className="mr-1" text={section[0]} href={`#${section[1]}`} />
+        ))}
+      </nav>
+      <div className="max-w-[85%] mx-auto">
+        {sections.map(([title, prop], i) => (
+          <div key={i}>
+            <h3 id={prop} className="text-3xl my-4 scroll-mt-16">
+              <Link href={`#${prop}`}>
+                # {title} ({topCards?.[prop]?.length ?? 0})
+              </Link>
+            </h3>
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(245px,1fr))] gap-y-5">
+              {topCards?.[prop]?.map((card, i) => (
+                <div key={i} className="mx-auto text-center">
+                  <Card card={card} />
+                  <div>
+                    {getPercentage(card.num_decks_with_card, commanderCard?.count ?? 1)}% of {commanderCard.count} decks
+                  </div>
                 </div>
-                {/* <div>+15% synergy</div> */}
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
-      ))}
-    </div>
+        ))}
+      </div>
+    </>
   )
 }
 
 function getPercentage(num1: number, num2: number): number {
   return Math.trunc((num1 / num2) * 100)
 }
+
+function Card({
+  card,
+  className = '',
+  size = 'normal',
+}: {
+  card: Card
+  className?: string
+  size?: 'normal' | 'large'
+}) {
+  const width = size === 'normal' ? 244 : 336
+  const height = size === 'normal' ? 340 : 468
+  return (
+    <Image
+      className={`rounded-[5%] ${className}`}
+      src={size === 'normal' ? card.image_normal : card.image_large}
+      alt={card.name}
+      width={width}
+      height={height}
+    />
+  )
+}
+
 // export default async function Page({ params }: { params: { commander: string } }) {
-//   const topCards = await getCommanderTopCards()
-// const sections = [
-//   // 's',
-//   'Top Cards',
-//   'Creatures',
-//   'Instants',
-//   'Sorceries',
-//   'Utillity Artifacts',
-//   'Enchantments',
-//   'Planeswalkers',
-//   'Utility Lands',
-//   'Mana Artifacts',
-//   'Lands',
-// ] as const
-// const topCardsArr = [
-//   // 's',
-//   // 'top_cards',
-//   'creatures',
-//   'instants',
-//   'sorceries',
-//   'utility_artifacts',
-//   'enchantments',
-//   'planeswalkers',
-//   'utility_lands',
-//   'mana_artifacts',
-//   'lands',
-// ] as const
 // const cards: string[] = new Array(20)
 // const max = Math.floor(Math.random() * 20)
 // cards.fill(commander.image_large, 0, 13)
@@ -180,52 +161,3 @@ function getPercentage(num1: number, num2: number): number {
 //   </>
 // )
 // }
-
-function Section({ children }: { children?: React.ReactNode }) {
-  const sections = [
-    'Top Cards',
-    'Creatures',
-    'Instants',
-    'Sorceries',
-    'Utillity Artifacts',
-    'Enchantments',
-    'Planeswalkers',
-    'Utility Lands',
-    'Mana Artifacts',
-    'Lands',
-  ] as const
-  return (
-    <>
-      {sections.map((section, i) => (
-        <>
-          <h3 key={i} id={section.replace(' ', '_')} className="text-3xl my-4 scroll-mt-16">
-            <Link href={`#${section.replace(' ', '_')}`}># {section}</Link>
-          </h3>
-          {children}
-        </>
-      ))}
-    </>
-  )
-}
-
-function Card({
-  card,
-  className = '',
-  size = 'normal',
-}: {
-  card: Card
-  className?: string
-  size?: 'normal' | 'large'
-}) {
-  const width = size === 'normal' ? 244 : 336
-  const height = size === 'normal' ? 340 : 468
-  return (
-    <Image
-      className={`rounded-[5%] ${className}`}
-      src={card.image_large}
-      alt={card.name}
-      width={width}
-      height={height}
-    />
-  )
-}
