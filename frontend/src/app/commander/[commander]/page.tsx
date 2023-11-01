@@ -63,12 +63,17 @@ export default async function Page({ params }: { params: { commander: string } }
       <div className="text-center z-40 relative">
         <h2 className="text-4xl">{commanderCard.name}</h2>
         <Card className="mx-auto my-2" card={commanderCard} size="large" />
-        <div>{commanderCard.count} decks (%) of Decks with this Color Identity</div>
-        <div>{commanderCard.count} decks (%) of ALL Decks</div>
+        <div>
+          <span className="text-accent-color">{commanderCard.count}</span> decks (%) of Decks with this Color Identity
+        </div>
+        <div>
+          {' '}
+          <span className="text-accent-color">{commanderCard.count}</span> decks (%) of ALL Decks
+        </div>
         <div>Rank #</div>
       </div>
 
-      <nav className="bg-[#1E1E1E] sticky top-0 flex overflow-auto py-[10px] lg:max-w-[85%] lg:mx-auto">
+      <nav className="bg-bg-color sticky top-0 flex overflow-auto py-[10px] lg:max-w-[85%] lg:mx-auto">
         {sections.map((section, i) => (
           <ClickableChip key={i} className="mr-1" text={section[0]} href={`#${section[1]}`} />
         ))}
@@ -77,8 +82,9 @@ export default async function Page({ params }: { params: { commander: string } }
         {sections.map(([title, prop], i) => (
           <div key={i}>
             <h3 id={prop} className="text-3xl my-4 scroll-mt-16">
-              <Link href={`#${prop}`}>
-                # {title} ({topCards?.[prop]?.length ?? 0})
+              <Link href={`#${prop}`} className="group">
+                <span className="text-bg-color group-hover:text-accent-color">#</span> {title} (
+                {topCards?.[prop]?.length ?? 0})
               </Link>
             </h3>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(245px,1fr))] gap-y-5">
@@ -86,7 +92,10 @@ export default async function Page({ params }: { params: { commander: string } }
                 <div key={i} className="mx-auto text-center">
                   <Card card={card} />
                   <div>
-                    {getPercentage(card.num_decks_with_card, commanderCard?.count ?? 1)}% of {commanderCard.count} decks
+                    <span className="text-accent-color">
+                      {getPercentage(card.num_decks_with_card, commanderCard?.count ?? 1)}%
+                    </span>{' '}
+                    of {commanderCard.count} decks
                   </div>
                 </div>
               ))}
