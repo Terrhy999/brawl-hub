@@ -27,9 +27,10 @@ async fn main() {
     };
 
     let app = Router::new()
+        .route("/commander_slugs", get(commander_slugs))
         .route("/commanders/", get(top_commanders))
         .route("/commanders/:colors", get(top_commanders_of_color))
-        .route("/commanders/:colors/:time", get(top_commanders_of_color_time))
+        // .route("/commanders/:colors/:time", get(top_commanders_of_color_time))
         .route("/commanders/colorless", get(top_commanders_colorless))
         .route("/top_cards", get(top_cards))
         .route("/top_cards/:colors", get(top_cards_of_color))
@@ -96,6 +97,22 @@ struct Commander {
     image_large: String,
     image_art_crop: String,
     image_border_crop: String,
+}
+
+async fn commander_slugs(State(AppState{pool}): State<AppState>) -> Json<Vec<Option<String>>> {
+
+    struct Response {
+        slug: Option<String>
+    }
+
+    let res: Vec<Option<String>> = sqlx::query_as!(Response, "SELECT slug FROM card WHERE is_commander=true")
+    .fetch_all(&pool)
+    .await
+    .expect("couldn't fetch slugs")
+    .into_iter().map(|slug| slug.slug
+    ).collect();
+
+    Json(res)
 }
 
 async fn top_commanders_colorless(State(AppState{pool}): State<AppState>) -> Json<Vec<CardCount>> {
