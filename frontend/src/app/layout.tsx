@@ -12,9 +12,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      {/* <body className={`${inter.className} bg-[#0f0f0f] text-white`}> */}
-      {/* <body className={`${inter.className} bg-[#141d26] text-white`}> */}
-      <body className={`${inter.className} bg-[#1E1E1E] text-white`}>
+      <body className={`${inter.className} bg-bg-color text-white`}>
         <NavBar />
         <main className="mx-auto">{children}</main>
       </body>
@@ -24,8 +22,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
 function NavBar() {
   return (
-    // <header className="h-[56px] bg-[#a2ac94] flex items-center p-4">
-    <header className="h-[56px] bg-[#000000] opacity-20 flex items-center p-4">
+    <header className="h-[56px] bg-header-color flex items-center p-4">
       BrawlRec
       <nav></nav>
     </header>
