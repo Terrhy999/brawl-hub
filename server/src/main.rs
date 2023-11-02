@@ -30,6 +30,7 @@ async fn main() {
     let app = Router::new()
         .route("/commander_slugs", get(commander_slugs))
         .route("/card_slugs", get(card_slugs))
+        .route("/card/:slug", get(card_by_slug))
         .route("/commander/:slug", get(commander_by_slug))
         .route("/commanders/", get(top_commanders))
         .route("/commanders/:colors", get(top_commanders_of_color))
@@ -93,6 +94,21 @@ async fn card_slugs(State(AppState{pool}): State<AppState>) -> Json<Vec<Option<S
     .expect("couldn't fetch card slugs")
     .into_iter()
     .map(|res| res.slug).collect();
+    Json(res)
+}
+
+#[axum::debug_handler]
+async fn card_by_slug(State(AppState{pool}): State<AppState>, Path(slug): Path<String>) -> Json<CardCount> {
+
+    let res = sqlx::query_as!(CardCount,
+        "SELECT c.*, COUNT(dl.*) as count
+        FROM card c 
+        LEFT JOIN decklist dl
+        ON c.oracle_id = dl.oracle_id
+        WHERE slug = $1
+        GROUP BY c.oracle_id",
+        slug
+    ).fetch_one(&pool).await.expect("couldn't fetch card by slug");
     Json(res)
 }
 
