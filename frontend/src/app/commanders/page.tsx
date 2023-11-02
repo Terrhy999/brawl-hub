@@ -9,5 +9,5 @@ async function getTopCommanders() {
 
 export default async function Page() {
   const topCommanders = await getTopCommanders()
-  return <CardGrid cards={topCommanders} />
+  return <CardGrid cards={topCommanders} linkTo="commander" />
 }

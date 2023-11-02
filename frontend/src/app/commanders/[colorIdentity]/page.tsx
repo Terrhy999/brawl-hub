@@ -49,5 +49,5 @@ async function getCommandersByColorIdentity(colorIdentity: string): Promise<Card
 
 export default async function Page({ params }: { params: { colorIdentity: string } }) {
   const commanders = await getCommandersByColorIdentity(params.colorIdentity)
-  return <CardGrid cards={commanders} />
+  return <CardGrid cards={commanders} linkTo="commander" />
 }
