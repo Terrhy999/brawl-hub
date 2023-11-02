@@ -10,10 +10,10 @@ async function getTopCards(): Promise<Card[]> {
 
 export default async function Page() {
   const topCards = await getTopCards()
-  return <CardGrid cards={topCards}>{cardText}</CardGrid>
+  return <CardGrid cards={topCards}>{CardText}</CardGrid>
 }
 
-function cardText(card: Card, i: number): React.ReactNode {
+function CardText(card: Card, i: number): React.ReactNode {
   return (
     <div className="text-center">
       <div>Rank #{i + 1}</div>
