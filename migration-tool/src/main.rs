@@ -17,14 +17,14 @@ async fn main() {
         .await
         .expect("couldn't connect to db");
 
-    add_card_slug(&pool).await;
-    // if false {
-    //     migrate_scryfall_cards(&pool).await;
-    // }
-    // let decks = get_aetherhub_decks(0, 80).await;
-    // for deck in decks {
-    //     migrate_aetherhub_decklists(&pool, &deck).await
-    // }
+    // add_card_slug(&pool).await;
+    if false {
+        migrate_scryfall_cards(&pool).await;
+    }
+    let decks = get_aetherhub_decks(0, 40).await;
+    for deck in decks {
+        migrate_aetherhub_decklists(&pool, &deck).await
+    }
 }
 
 async fn add_card_slug(pool: &Pool<Postgres>) {
@@ -33,7 +33,7 @@ async fn add_card_slug(pool: &Pool<Postgres>) {
     //     .await
     //     .expect("couldn't create slug column on card");
 
-    let all_cards = sqlx::query_as!(Card, "SELECT oracle_id, name, lang, scryfall_uri, layout, mana_cost, cmc, type_line, oracle_text, colors, is_legal, is_commander, rarity, image_small, image_normal, image_large, image_art_crop, image_border_crop, color_identity, slug FROM card")
+    let all_cards = sqlx::query_as!(Card, "SELECT oracle_id, name, lang, scryfall_uri, layout, mana_cost, cmc, type_line, oracle_text, colors, is_legal, is_legal_commander, rarity, image_small, image_normal, image_large, image_art_crop, image_border_crop, color_identity, slug FROM card")
         .fetch_all(pool)
         .await
         .expect("couldn't select all cards");
@@ -83,10 +83,14 @@ async fn add_card_slug(pool: &Pool<Postgres>) {
 }
 
 async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck) {
+    println!("DECK ID: {}", deck.id);
     #[derive(Serialize, Deserialize, Debug)]
     struct CardInDeck {
         quantity: Option<i32>,
         name: String,
+        a_name: String,
+        is_companion: bool,
+        is_commander: bool,
     }
 
     #[derive(Serialize, Deserialize, Debug)]
@@ -95,54 +99,119 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
         converted_deck: Vec<CardInDeck>,
     }
 
-    let aetherhub_decklist: Vec<CardInDeck> = serde_json::from_str::<Response>(
-        reqwest::Client::new()
-            .get(format!(
-                "https://aetherhub.com/Deck/FetchMtgaDeckJson?deckId={}",
-                deck.id // 975951
-            ))
-            .send()
-            .await
-            .expect("couldn't fetch aetherhub_decklist")
-            .text()
-            .await
-            .expect("couldn't read response body")
-            .as_str(),
-    )
-    .expect("couldn't parse aetherhub aetherhub_decklist response")
-    .converted_deck
-    .into_iter()
-    .filter(|card| card.quantity.is_some())
-    .map(|card| CardInDeck {
-        name: match card.name.strip_prefix("A-") {
-            Some(x) => x.to_string(),
-            None => card.name,
-        },
-        quantity: card.quantity,
-    })
-    .collect();
+    let aetherhub_decklist = reqwest::Client::new()
+        .get(format!(
+            "https://aetherhub.com/Deck/FetchDeckExport?deckId={}",
+            deck.id
+        ))
+        .send()
+        .await
+        .expect("couldn't fetch ah decklist")
+        .text()
+        .await
+        .expect("couldn't read response body");
 
-    // println!("{}", deck.id);
-    // println!("{:#?}, id: {}", aetherhub_decklist, deck.id);
+    let aetherhub_decklist = sanitize_deck(&aetherhub_decklist);
+
+    fn sanitize_deck(decklist: &str) -> Vec<CardInDeck> {
+        let lines = decklist.split("\\n").collect::<Vec<&str>>();
+        let has_companion = lines[0].starts_with("\"Companion");
+
+        let result = lines
+            .iter()
+            .enumerate()
+            .filter_map(|(index, line)| {
+                // println!("{:#?}", line);
+                if line.is_empty()
+                    || line == &"Sideboard"
+                    || line == &"\""
+                    || line == &"\"Companion"
+                    || line == &"\"Deck"
+                    || line == &"Deck"
+                {
+                    println!("{line} => None");
+                    None
+                } else {
+                    if index == 1 && has_companion {
+                        println!("{line} => Companion");
+                        // First line is the companion
+                        let (quantity, name) = line.split_once(" ").unwrap();
+                        let (sanitized, alchemy) = sanitize_card_name(name);
+                        Some(CardInDeck {
+                            name: sanitized.to_string(),
+                            a_name: alchemy.to_string(),
+                            quantity: Some(quantity.parse::<i32>().unwrap()),
+                            is_companion: true,
+                            is_commander: false,
+                        })
+                    } else if index == lines.len() - 2 {
+                        println!("{line} => Commander");
+                        // Second to last line is the commander
+                        let (quantity, name) = line.split_once(" ").unwrap();
+                        let (sanitized, alchemy) = sanitize_card_name(name);
+                        Some(CardInDeck {
+                            name: sanitized.to_string(),
+                            a_name: alchemy.to_string(),
+                            quantity: Some(quantity.parse::<i32>().unwrap()),
+                            is_companion: false,
+                            is_commander: true,
+                        })
+                    } else {
+                        println!("{line} => Normal Card");
+                        let (quantity, name) = line.split_once(" ").unwrap();
+                        let (sanitized, alchemy) = sanitize_card_name(name);
+                        Some(CardInDeck {
+                            name: sanitized.to_string(),
+                            a_name: alchemy.to_string(),
+                            quantity: Some(quantity.parse::<i32>().unwrap()),
+                            is_commander: false,
+                            is_companion: false,
+                        })
+                    }
+                    // println!("{line}");
+                }
+            })
+            .collect::<Vec<_>>();
+        // println!("{:#?}", result);
+        result
+    }
+
+    fn sanitize_card_name(name: &str) -> (String, String) {
+        if name.contains(" // ") {
+            let (front, back) = name.split_once(" // ").unwrap();
+            let front_stripped = front.strip_prefix("A-").unwrap_or(front);
+            let back_stripped = back.strip_prefix("A-").unwrap_or(back);
+            // println!("Front: {} \nBack: {}", front_stripped, back_stripped);
+            (
+                format!("{} // {}", front_stripped, back_stripped),
+                format!("A-{} // A-{}", front_stripped, back_stripped),
+            )
+        } else {
+            let stripped = name.strip_prefix("A-").unwrap_or(name);
+            (stripped.to_string(), format!("A-{}", name))
+        }
+    }
 
     let card_ids = aetherhub_decklist.iter().map(|card| async {
-        let aftermath_cards = format!(
-            "{}%",
-            card.name.split_inclusive('/').collect::<Vec<&str>>()[0]
-        );
         #[derive(Debug)]
         #[allow(dead_code)]
         struct OracleId {
             oracle_id: Option<Uuid>,
             name: Option<String>,
         }
-
+        // Sheoldred // The True Scriptures  => Sheoldred
+        // NEED TO FIX
         sqlx::query_as!(
             OracleId,
-            "SELECT oracle_id, name FROM card WHERE unaccent(name) LIKE unaccent($1)
-            UNION SELECT oracle_id, name FROM card WHERE unaccent(name) LIKE unaccent($2)",
-            format!("%{}%", card.name),
-            aftermath_cards
+            "SELECT oracle_id, name FROM card WHERE unaccent(name) = unaccent($1)
+            UNION SELECT oracle_id, name FROM card WHERE unaccent(name) = unaccent($2)
+            UNION SELECT oracle_id, name FROM card WHERE unaccent(name) LIKE unaccent($3)
+            UNION SELECT oracle_id, name FROM card WHERE unaccent(name) LIKE unaccent($4);
+            ",
+            card.a_name,
+            card.name,
+            format!("{}%", card.a_name),
+            format!("{}%", card.name),
         )
         .fetch_optional(pool)
         .await
@@ -151,30 +220,47 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
     });
 
     let card_ids = join_all(card_ids).await;
-    // println!("{:#?}", card_ids);
 
     #[derive(Debug)]
     struct CombinedCardData {
         oracle_id: Option<Uuid>,
         name: String,
+        a_name: String,
         quantity: Option<i32>,
+        is_companion: bool,
+        is_commander: bool,
     }
 
     let combined_card_data: Vec<CombinedCardData> = aetherhub_decklist
         .into_iter()
         .zip(card_ids)
         .map(|(decklist_card, card_id)| {
-            let name = decklist_card.name.clone();
+            let name = decklist_card.name;
             let quantity = decklist_card.quantity;
             let oracle_id = card_id.oracle_id;
+            let a_name = decklist_card.a_name;
+            let is_companion = decklist_card.is_companion;
+            let is_commander = decklist_card.is_commander;
 
             CombinedCardData {
                 oracle_id,
                 name,
                 quantity,
+                a_name,
+                is_companion,
+                is_commander,
             }
         })
         .collect();
+
+    let commander_id = combined_card_data
+        .iter()
+        .find(|card| card.is_commander)
+        .expect("no commander in list")
+        .oracle_id
+        .unwrap();
+    let companion = combined_card_data.iter().find(|card| card.is_companion);
+    let companion_id = companion.map(|card| card.oracle_id).unwrap_or(None);
 
     struct DeckID {
         id: i32,
@@ -182,8 +268,8 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
 
     sqlx::query_as!(
         AetherHubDeck,
-        "INSERT INTO deck (id, deck_id, url, username, date_created, date_updated, commander)
-        VALUES (DEFAULT, $1, $2, $3, $4, $5, $6)
+        "INSERT INTO deck (id, deck_id, url, username, date_created, date_updated, commander, companion)
+        VALUES (DEFAULT, $1, $2, $3, $4, $5, $6, $7)
         ON CONFLICT (deck_id) DO NOTHING",
         // Uuid::parse_str(&deck.id).expect("uuid parsed wrong"),
         deck.id,
@@ -191,9 +277,8 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
         deck.username,
         deck.created,
         deck.updated,
-        combined_card_data[0]
-            .oracle_id
-            .expect("uh oh no oracle_id for your commander"),
+        commander_id,
+        companion_id,
     )
     .execute(pool)
     .await
@@ -211,16 +296,17 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
             });
 
     for card in combined_card_data {
-        // let deck_id = Uuid::parse_str(deck.id.as_str()).expect("uuid parsed wrong");
         println!("{}, {:#?}, {}", deck.id, card.oracle_id, card.name);
         sqlx::query!(
-            "INSERT INTO decklist (oracle_id, deck_id, quantity)
-            VALUES ($1, $2, $3)
+            "INSERT INTO decklist (oracle_id, deck_id, quantity, is_companion, is_commander)
+            VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (oracle_id, deck_id) DO UPDATE
             SET quantity = decklist.quantity + $3",
             card.oracle_id,
             deck_id.id,
             card.quantity,
+            card.is_companion,
+            card.is_commander,
         )
         .execute(pool)
         .await
@@ -260,8 +346,8 @@ async fn migrate_scryfall_cards(pool: &Pool<Postgres>) {
     // println!("{:#?}", cards);
 
     for card in cards {
-        sqlx::query_as!(Card, "INSERT INTO card(oracle_id, name, lang, scryfall_uri, layout, mana_cost, cmc, type_line, oracle_text, colors, color_identity, is_legal, is_commander, rarity, image_small, image_normal, image_large, image_art_crop, image_border_crop)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)",
+        sqlx::query_as!(Card, "INSERT INTO card(oracle_id, name, lang, scryfall_uri, layout, mana_cost, cmc, type_line, oracle_text, colors, color_identity, is_legal, is_legal_commander, rarity, image_small, image_normal, image_large, image_art_crop, image_border_crop, slug)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)",
             Uuid::parse_str(&card.oracle_id).expect("uuid parsed wrong"),
             card.name,
             card.lang,
@@ -274,13 +360,14 @@ async fn migrate_scryfall_cards(pool: &Pool<Postgres>) {
             card.colors.as_deref(),
             &card.color_identity,
             card.is_legal,
-            card.is_commander,
+            card.is_legal_commander,
             card.rarity,
             card.image_small,
             card.image_normal,
             card.image_large,
             card.image_art_crop,
-            card.image_border_crop
+            card.image_border_crop,
+            slugify(&card.name)
         )
         .execute(pool)
         .await
@@ -470,7 +557,7 @@ struct Card {
     colors: Option<Vec<String>>,
     color_identity: Vec<String>,
     is_legal: bool,
-    is_commander: bool,
+    is_legal_commander: bool,
     rarity: String,
     image_small: String,
     image_normal: String,
@@ -537,7 +624,7 @@ struct CardFace {
 
 impl From<ScryfallCard> for Card {
     fn from(card: ScryfallCard) -> Self {
-        let is_commander = match &card {
+        let is_legal_commander = match &card {
             ScryfallCard::Normal(Normal { type_line, .. })
             | ScryfallCard::TwoFace(TwoFace { type_line, .. }) => {
                 type_line.to_lowercase().contains("legendary")
@@ -563,7 +650,7 @@ impl From<ScryfallCard> for Card {
                 color_identity: c.color_identity,
                 rarity: c.rarity,
                 is_legal: matches!(c.legalities.historicbrawl.as_str(), "legal"),
-                is_commander,
+                is_legal_commander,
                 image_small: c.image_uris.small,
                 image_normal: c.image_uris.normal,
                 image_large: c.image_uris.large,
@@ -586,7 +673,7 @@ impl From<ScryfallCard> for Card {
                 color_identity: c.color_identity,
                 rarity: c.rarity,
                 is_legal: matches!(c.legalities.historicbrawl.as_str(), "legal"),
-                is_commander,
+                is_legal_commander,
                 image_small: c.card_faces[0].image_uris.small.clone(),
                 image_normal: c.card_faces[0].image_uris.normal.clone(),
                 image_large: c.card_faces[0].image_uris.large.clone(),
