@@ -288,8 +288,8 @@ async fn top_commanders(State(AppState{pool}): State<AppState>) -> Json<Vec<Card
         LEFT JOIN deck d ON c.oracle_id = d.commander
         WHERE c.is_commander = TRUE
         GROUP BY c.oracle_id
-        ORDER BY count DESC;        
-        "
+        ORDER BY count DESC
+        LIMIT 100;"
     )
     .fetch_all(&pool)
     .await
@@ -307,7 +307,8 @@ async fn top_cards(State(AppState{pool}): State<AppState>) -> Json<Vec<CardCount
         FROM card c
         LEFT JOIN decklist dl ON c.oracle_id = dl.oracle_id
         GROUP BY c.oracle_id
-        ORDER BY count DESC;"
+        ORDER BY count DESC
+        LIMIT 100;"
     )
     .fetch_all(&pool)
     .await
