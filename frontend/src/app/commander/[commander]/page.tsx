@@ -1,6 +1,5 @@
-import { Card } from '@/app/_components/commander-card-gallery'
+import CardGrid, { Card } from '@/app/_components/card-grid'
 import { ClickableChip } from '@/app/commanders/layout'
-import Image from 'next/image'
 import Link from 'next/link'
 import React from 'react'
 
@@ -44,6 +43,7 @@ export default async function Page({ params }: { params: { commander: string } }
   const topCards = await getCommanderTopCards(commanderCard.oracle_id)
   const sections = [
     // ['Top Cards', ],
+    // (TODO) replace the _ with a -
     ['Creatures', 'creatures'],
     ['Instants', 'instants'],
     ['Sorceries', 'sorceries'],
@@ -67,8 +67,7 @@ export default async function Page({ params }: { params: { commander: string } }
           <span className="text-accent-color">{commanderCard.count}</span> decks (%) of Decks with this Color Identity
         </div>
         <div>
-          {' '}
-          <span className="text-accent-color">{commanderCard.count}</span> decks (%) of ALL Decks
+          <span className="text-accent-color">{commanderCard.count}</span> decks (%)
         </div>
         <div>Rank #</div>
       </div>
@@ -87,19 +86,7 @@ export default async function Page({ params }: { params: { commander: string } }
                 {topCards?.[prop]?.length ?? 0})
               </Link>
             </h3>
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(245px,1fr))] gap-y-5">
-              {topCards?.[prop]?.map((card, i) => (
-                <div key={i} className="mx-auto text-center">
-                  <Card card={card} />
-                  <div>
-                    <span className="text-accent-color">
-                      {getPercentage(card.num_decks_with_card, commanderCard?.count ?? 1)}%
-                    </span>{' '}
-                    of {commanderCard.count} decks
-                  </div>
-                </div>
-              ))}
-            </div>
+            <CardGrid cards={topCards?.[prop] ?? []}>{CardText(commanderCard)}</CardGrid>
           </div>
         ))}
       </div>
@@ -107,28 +94,17 @@ export default async function Page({ params }: { params: { commander: string } }
   )
 }
 
-function getPercentage(num1: number, num2: number): number {
-  return Math.trunc((num1 / num2) * 100)
+function CardText(commanderCard: Card): (card: TopCard) => React.ReactNode {
+  return function Text(card: TopCard) {
+    return (
+      <div>
+        <span className="text-accent-color">{getPercentage(card.num_decks_with_card, commanderCard?.count ?? 1)}%</span>{' '}
+        of {commanderCard.count}
+      </div>
+    )
+  }
 }
 
-function Card({
-  card,
-  className = '',
-  size = 'normal',
-}: {
-  card: Card
-  className?: string
-  size?: 'normal' | 'large'
-}) {
-  const width = size === 'normal' ? 244 : 336
-  const height = size === 'normal' ? 340 : 468
-  return (
-    <Image
-      className={`rounded-[5%] ${className}`}
-      src={size === 'normal' ? card.image_normal : card.image_large}
-      alt={card.name}
-      width={width}
-      height={height}
-    />
-  )
+function getPercentage(num1: number, num2: number): number {
+  return Math.trunc((num1 / num2) * 100)
 }

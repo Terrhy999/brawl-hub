@@ -1,6 +1,5 @@
-import { Card } from '@/app/_components/commander-card-gallery'
+import { Card } from '@/app/_components/card-grid'
 import { ClickableChip } from '@/app/commanders/layout'
-import Image from 'next/image'
 import Link from 'next/link'
 import React from 'react'
 
@@ -81,27 +80,5 @@ export default async function Page({ params }: { params: { card: string } }) {
             </div> */}
       </div>
     </>
-  )
-}
-
-function Card({
-  card,
-  className = '',
-  size = 'normal',
-}: {
-  card: Card
-  className?: string
-  size?: 'normal' | 'large'
-}) {
-  const width = size === 'normal' ? 244 : 336
-  const height = size === 'normal' ? 340 : 468
-  return (
-    <Image
-      className={`rounded-[5%] ${className}`}
-      src={size === 'normal' ? card.image_normal : card.image_large}
-      alt={card.name}
-      width={width}
-      height={height}
-    />
   )
 }

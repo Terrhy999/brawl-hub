@@ -1,4 +1,4 @@
-import CommanderCardGallery from '../_components/commander-card-gallery'
+import CardGrid from '../_components/card-grid'
 
 async function getTopCommanders() {
   const res = await fetch('http://127.0.0.1:3030/commanders/', {
@@ -8,6 +8,6 @@ async function getTopCommanders() {
 }
 
 export default async function Page() {
-  const top_commanders = await getTopCommanders()
-  return <CommanderCardGallery commanders={top_commanders} />
+  const topCommanders = await getTopCommanders()
+  return <CardGrid cards={topCommanders} />
 }

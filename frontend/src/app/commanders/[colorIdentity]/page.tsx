@@ -1,4 +1,4 @@
-import CommanderCardGallery, { Card } from '@/app/_components/commander-card-gallery'
+import CardGrid, { Card } from '@/app/_components/card-grid'
 
 export const dynamicParams = false
 export const colorCombinations = [
@@ -49,6 +49,5 @@ async function getCommandersByColorIdentity(colorIdentity: string): Promise<Card
 
 export default async function Page({ params }: { params: { colorIdentity: string } }) {
   const commanders = await getCommandersByColorIdentity(params.colorIdentity)
-  return <CommanderCardGallery commanders={commanders} />
-  // <div className="bg-[#22262a] text-white">
+  return <CardGrid cards={commanders} />
 }
