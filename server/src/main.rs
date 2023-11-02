@@ -87,7 +87,12 @@ async fn card_slugs(State(AppState{pool}): State<AppState>) -> Json<Vec<Option<S
         slug: Option<String>
     }
 
-    let res = sqlx::query_as!(Response, "SELECT DISTINCT slug FROM card").fetch_all(&pool).await.expect("couldn't fetch card slugs").into_iter().map(|res| res.slug).collect();
+    let res = sqlx::query_as!(Response, "SELECT DISTINCT slug FROM card WHERE name NOT LIKE 'A-%'")
+    .fetch_all(&pool)
+    .await
+    .expect("couldn't fetch card slugs")
+    .into_iter()
+    .map(|res| res.slug).collect();
     Json(res)
 }
 
