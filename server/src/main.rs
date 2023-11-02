@@ -29,6 +29,7 @@ async fn main() {
 
     let app = Router::new()
         .route("/commander_slugs", get(commander_slugs))
+        .route("/card_slugs", get(card_slugs))
         .route("/commander/:slug", get(commander_by_slug))
         .route("/commanders/", get(top_commanders))
         .route("/commanders/:colors", get(top_commanders_of_color))
@@ -46,7 +47,9 @@ async fn main() {
             get(top_cards_for_color_identity_of_commander),
         )
         .with_state(state);
+
     let addr = SocketAddr::from(([127, 0, 0, 1], 3030));
+
     println!("Server listening on {addr}");
     axum::Server::bind(&addr)
         .serve(app.into_make_service())
@@ -77,6 +80,15 @@ struct CardCount {
     image_border_crop: String,
     count: Option<i64>,
     slug: Option<String>,
+}
+
+async fn card_slugs(State(AppState{pool}): State<AppState>) -> Json<Vec<Option<String>>> {
+    struct Response {
+        slug: Option<String>
+    }
+
+    let res = sqlx::query_as!(Response, "SELECT DISTINCT slug FROM card").fetch_all(&pool).await.expect("couldn't fetch card slugs").into_iter().map(|res| res.slug).collect();
+    Json(res)
 }
 
 async fn commander_by_slug(State(AppState{pool}): State<AppState>, Path(slug): Path<String>) -> Json<CardCount> {
