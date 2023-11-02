@@ -15,5 +15,18 @@ async function getCommandersByColorIdentity(colorIdentity: string): Promise<Card
 
 export default async function Page({ params }: { params: { colorIdentity: string } }) {
   const commanders = await getCommandersByColorIdentity(params.colorIdentity)
-  return <CardGrid cards={commanders} linkTo="commander" />
+  return (
+    <CardGrid cards={commanders} linkTo="commander">
+      {CardText}
+    </CardGrid>
+  )
+}
+
+function CardText(card: Card, i: number): React.ReactNode {
+  return (
+    <div className="text-center">
+      <div>Rank #{i + 1}</div>
+      <div>{card.count} decks</div>
+    </div>
+  )
 }

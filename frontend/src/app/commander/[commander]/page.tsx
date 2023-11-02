@@ -82,7 +82,7 @@ function CardText(commanderCard: Card): (card: TopCard) => React.ReactNode {
   return function Text(card: TopCard) {
     return (
       <div>
-        <span className="text-accent-color">{getPercentage(card.num_decks_with_card, commanderCard?.count ?? 1)}%</span>{' '}
+        <span className="text-accent-color">{getPercentage(card.num_decks_with_card, commanderCard?.count ?? 1)}%</span>
         of {commanderCard.count}
       </div>
     )
