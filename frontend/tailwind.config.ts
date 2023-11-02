@@ -10,9 +10,9 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // 'accent-color': '#6D8B4D',
+        'accent-color': '#6D8B4D',
         // 'accent-color': '#3A5925',
-        'accent-color': '#9499ff',
+        // 'accent-color': '#9499ff',
         'bg-color': '#1e1e20',
         // 'bg-color': 'black',
         // 'bg-color': #0f0f0f,
