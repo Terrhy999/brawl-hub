@@ -2,15 +2,14 @@
 
 import Image from 'next/image'
 import React, { useEffect, useState } from 'react'
-import { colorCombinations } from './[colorIdentity]/page'
 import { usePathname } from 'next/navigation'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { colorCombinations } from '../_utils/color-combinations'
 
 type Colors = 'w' | 'u' | 'b' | 'r' | 'g' | 'colorless'
 
 export default function ColorIdentityFilter({ children }: { children: React.ReactNode }) {
-  let activeDateFilter = 'year'
   const pathname = usePathname()?.split('/')[2] ?? ''
   let alreadySelectedColors: Set<Colors> | undefined = undefined
   if (pathname === 'colorless') {
