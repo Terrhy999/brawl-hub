@@ -1,12 +1,11 @@
 import CardGrid, { Card } from '@/app/_components/card-grid'
+import { CardPage } from '@/app/_components/card-page'
 import { ClickableChip } from '@/app/commanders/layout'
 import Link from 'next/link'
 import React from 'react'
 
 export const dynamicParams = false
-
 type TopCard = Card & { num_decks_with_card: number; num_decks_total: number }
-
 type Sections =
   | 'newCards'
   | 'topCards'
@@ -19,7 +18,6 @@ type Sections =
   | 'utility_lands'
   | 'mana_artifacts'
   | 'lands'
-
 type TopCards = Record<Sections, TopCard[]>
 
 export async function generateStaticParams() {
@@ -56,40 +54,26 @@ export default async function Page({ params }: { params: { commander: string } }
   ] as const
   return (
     <>
-      <div
-        style={{ ['--image-url' as any]: `url(${commanderCard.image_art_crop})` }}
-        className={`absolute blur-md bg-cover w-full h-[442px] bg-[image:var(--image-url)]`}
-      ></div>
-      <div className="text-center z-40 relative">
-        <h2 className="text-4xl">{commanderCard.name}</h2>
-        <Card className="mx-auto my-2" card={commanderCard} size="large" />
-        <div>
-          <span className="text-accent-color">{commanderCard.count}</span> decks (%) of Decks with this Color Identity
+      <CardPage card={commanderCard}>
+        <nav className="bg-bg-color sticky top-0 flex overflow-auto py-[10px] lg:max-w-[85%] lg:mx-auto">
+          {sections.map((section, i) => (
+            <ClickableChip key={i} className="mr-1" text={section[0]} href={`#${section[1]}`} />
+          ))}
+        </nav>
+        <div className="max-w-[85%] mx-auto">
+          {sections.map(([title, prop], i) => (
+            <div key={i}>
+              <h3 id={prop} className="text-3xl my-4 scroll-mt-16">
+                <Link href={`#${prop}`} className="group">
+                  <span className="text-bg-color group-hover:text-accent-color">#</span> {title} (
+                  {topCards?.[prop]?.length ?? 0})
+                </Link>
+              </h3>
+              <CardGrid cards={topCards?.[prop] ?? []}>{CardText(commanderCard)}</CardGrid>
+            </div>
+          ))}
         </div>
-        <div>
-          <span className="text-accent-color">{commanderCard.count}</span> decks (%)
-        </div>
-        <div>Rank #</div>
-      </div>
-
-      <nav className="bg-bg-color sticky top-0 flex overflow-auto py-[10px] lg:max-w-[85%] lg:mx-auto">
-        {sections.map((section, i) => (
-          <ClickableChip key={i} className="mr-1" text={section[0]} href={`#${section[1]}`} />
-        ))}
-      </nav>
-      <div className="max-w-[85%] mx-auto">
-        {sections.map(([title, prop], i) => (
-          <div key={i}>
-            <h3 id={prop} className="text-3xl my-4 scroll-mt-16">
-              <Link href={`#${prop}`} className="group">
-                <span className="text-bg-color group-hover:text-accent-color">#</span> {title} (
-                {topCards?.[prop]?.length ?? 0})
-              </Link>
-            </h3>
-            <CardGrid cards={topCards?.[prop] ?? []}>{CardText(commanderCard)}</CardGrid>
-          </div>
-        ))}
-      </div>
+      </CardPage>
     </>
   )
 }
