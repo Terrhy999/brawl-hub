@@ -41,7 +41,6 @@ export default function ColorIdentityFilter({ children }: { children: React.Reac
   ] as const
   return (
     <main className="max-w-[85%] mx-auto">
-      {/* <> */}
       <h1 className="text-[32px]">Top {colorCombinationName} Commanders</h1>
       <div className="flex justify-between mb-5">
         {/* Change this to a radio button */}
@@ -103,7 +102,6 @@ export default function ColorIdentityFilter({ children }: { children: React.Reac
         </div>
       </div>
       {children}
-      {/* </> */}
     </main>
   )
 }
