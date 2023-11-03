@@ -37,7 +37,6 @@ async fn main() {
     // /card/:slug route should return count of decks it appears in, and count of decks it could appear in
     // /commander_top_cards/:oracle_id should not return the commander, or basic lands
 
-
     let app = Router::new()
         .route("/commander_slugs", get(commander_slugs))
         .route("/card_slugs", get(card_slugs))
@@ -103,12 +102,12 @@ async fn card_slugs(State(AppState { pool }): State<AppState>) -> Json<Vec<Optio
     }
 
     let res = sqlx::query_as!(Response, "SELECT DISTINCT slug FROM card")
-    .fetch_all(&pool)
-    .await
-    .expect("couldn't fetch card slugs")
-    .into_iter()
-    .map(|res| res.slug)
-    .collect();
+        .fetch_all(&pool)
+        .await
+        .expect("couldn't fetch card slugs")
+        .into_iter()
+        .map(|res| res.slug)
+        .collect();
     Json(res)
 }
 
@@ -127,7 +126,10 @@ async fn card_by_slug(
         GROUP BY c.oracle_id
         ORDER BY c.is_alchemy",
         slug
-    ).fetch_one(&pool).await.expect("couldn't fetch card by slug");
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("couldn't fetch card by slug");
     Json(res)
 }
 
@@ -143,7 +145,12 @@ async fn commander_by_slug(
         ON c.oracle_id = d.commander
         WHERE slug = $1
         GROUP BY c.oracle_id
-        ORDER BY c.name;", slug).fetch_one(&pool).await.expect("couldn't fetch commander by slug");
+        ORDER BY c.name;",
+        slug
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("couldn't fetch commander by slug");
     Json(res)
 }
 
@@ -152,12 +159,16 @@ async fn commander_slugs(State(AppState { pool }): State<AppState>) -> Json<Vec<
         slug: Option<String>,
     }
 
-    let res: Vec<Option<String>> = sqlx::query_as!(Response, "SELECT DISTINCT slug FROM card WHERE is_legal_commander=true")
+    let res: Vec<Option<String>> = sqlx::query_as!(
+        Response,
+        "SELECT DISTINCT slug FROM card WHERE is_legal_commander=true"
+    )
     .fetch_all(&pool)
     .await
     .expect("couldn't fetch slugs")
-    .into_iter().map(|slug| slug.slug
-    ).collect();
+    .into_iter()
+    .map(|slug| slug.slug)
+    .collect();
 
     Json(res)
 }
@@ -202,8 +213,7 @@ async fn top_cards_of_color(
         colors.push(char.to_uppercase().to_string());
     }
 
-    let res = sqlx::query_as!(CommanderTopCard, 
-        "WITH DecksWithCommanderColor AS (
+    let res = sqlx::query_as!(CommanderTopCard,"WITH DecksWithCommanderColor AS (
             SELECT d.id
             FROM deck d
             WHERE EXISTS (
@@ -227,7 +237,10 @@ async fn top_cards_of_color(
     Json(res)
 }
 
-async fn top_commanders_of_color(Path(color): Path<String>, State(AppState{pool}): State<AppState>) -> Json<Vec<CardCount>> {
+async fn top_commanders_of_color(
+    Path(color): Path<String>,
+    State(AppState { pool }): State<AppState>,
+) -> Json<Vec<CardCount>> {
     //Used to display the top commanders of a specific color identity, ordered by the number of decks with this commander
     let mut not_colors = vec![
         "W".to_string(),
@@ -308,7 +321,7 @@ async fn top_commanders_of_color_time(
 }
 
 #[debug_handler]
-async fn top_commanders(State(AppState{pool}): State<AppState>) -> Json<Vec<CardCount>> {
+async fn top_commanders(State(AppState { pool }): State<AppState>) -> Json<Vec<CardCount>> {
     // Used to display every commander, ordered number of decks with this commander
     let res = sqlx::query_as!(
         CardCount,
@@ -328,7 +341,7 @@ async fn top_commanders(State(AppState{pool}): State<AppState>) -> Json<Vec<Card
 }
 
 #[debug_handler]
-async fn top_cards(State(AppState{pool}): State<AppState>) -> Json<Vec<CardCount>> {
+async fn top_cards(State(AppState { pool }): State<AppState>) -> Json<Vec<CardCount>> {
     // Used to display the top cards, ordered by the number of decks the card appears in
     // FIX: Should be ordered by (number of decks the card appears in / number of decks the card CAN appear in)
     let res = sqlx::query_as!(
@@ -371,7 +384,7 @@ struct CommanderTopCard {
     num_decks_with_card: Option<i64>,
     num_decks_total: Option<i64>,
     is_alchemy: bool,
-    slug: Option<String>
+    slug: Option<String>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -418,7 +431,10 @@ struct TopCard {
     synergy: Option<f64>,
 }
 
-async fn commander_top_cards(Path(oracle_id): Path<String>, State(AppState{pool}): State<AppState>) -> Json<Vec<TopCard>> {
+async fn commander_top_cards(
+    Path(oracle_id): Path<String>,
+    State(AppState { pool }): State<AppState>,
+) -> Json<Vec<TopCard>> {
     // Used to display the most commonly played cards in decks helmed by a specific commander
     // Ordered by the number of decks helmed by this commander, running this card
     // FIX needs to exlude basic lands and the commander
@@ -528,37 +544,38 @@ async fn commander_top_cards(Path(oracle_id): Path<String>, State(AppState{pool}
                     );
                     // println!("{:#?} - {:#?} = {:#?}", usage_in_commander.unwrap(), usage_in_color.unwrap(), synergy.unwrap());
 
-                TopCard {
-                    oracle_id: commander_card.oracle_id.clone(),
-                    name: commander_card.name.clone(),
-                    lang: commander_card.lang.clone(),
-                    scryfall_uri: commander_card.scryfall_uri.clone(),
-                    layout: commander_card.layout.clone(),
-                    mana_cost: commander_card.mana_cost.clone(),
-                    cmc: commander_card.cmc,
-                    type_line: commander_card.type_line.clone(),
-                    oracle_text: commander_card.oracle_text.clone(),
-                    colors: commander_card.colors.clone(),
-                    color_identity: commander_card.color_identity.clone(),
-                    is_legal: commander_card.is_legal,
-                    is_commander: commander_card.is_legal_commander,
-                    rarity: commander_card.rarity.clone(),
-                    image_small: commander_card.image_small.clone(),
-                    image_normal: commander_card.image_normal.clone(),
-                    image_large: commander_card.image_large.clone(),
-                    image_art_crop: commander_card.image_art_crop.clone(),
-                    image_border_crop: commander_card.image_border_crop.clone(),
-                    slug: commander_card.slug.clone(),
-                    total_decks_of_commander: decks_of_commander,
-                    decks_of_commander_with_card,
-                    total_decks_of_color: decks_of_color,
-                    decks_of_color_with_card,
-                    usage_in_commander,
-                    usage_in_color,
-                    synergy,
-                }
+                    TopCard {
+                        oracle_id: commander_card.oracle_id.clone(),
+                        name: commander_card.name.clone(),
+                        lang: commander_card.lang.clone(),
+                        scryfall_uri: commander_card.scryfall_uri.clone(),
+                        layout: commander_card.layout.clone(),
+                        mana_cost: commander_card.mana_cost.clone(),
+                        cmc: commander_card.cmc,
+                        type_line: commander_card.type_line.clone(),
+                        oracle_text: commander_card.oracle_text.clone(),
+                        colors: commander_card.colors.clone(),
+                        color_identity: commander_card.color_identity.clone(),
+                        is_legal: commander_card.is_legal,
+                        is_commander: commander_card.is_legal_commander,
+                        rarity: commander_card.rarity.clone(),
+                        image_small: commander_card.image_small.clone(),
+                        image_normal: commander_card.image_normal.clone(),
+                        image_large: commander_card.image_large.clone(),
+                        image_art_crop: commander_card.image_art_crop.clone(),
+                        image_border_crop: commander_card.image_border_crop.clone(),
+                        slug: commander_card.slug.clone(),
+                        total_decks_of_commander: decks_of_commander,
+                        decks_of_commander_with_card,
+                        total_decks_of_color: decks_of_color,
+                        decks_of_color_with_card,
+                        usage_in_commander,
+                        usage_in_color,
+                        synergy,
+                    }
+                })
         })
-    }).collect();
+        .collect();
 
     Json(combined_top_cards)
 }
