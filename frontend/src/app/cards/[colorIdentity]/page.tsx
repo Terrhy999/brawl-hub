@@ -9,8 +9,6 @@ export async function generateStaticParams() {
 }
 
 export default async function Page({ params }: { params: { colorIdentity: string } }) {
-  const cardsOfColorIdentity = await fetchJson<Card[]>(
-    `http://127.0.0.1:3030/top_cards_for_color_identity/${params.colorIdentity}/`
-  )
+  const cardsOfColorIdentity = await fetchJson<Card[]>(`http://127.0.0.1:3030/top_cards/${params.colorIdentity}`)
   return <CardGrid cards={cardsOfColorIdentity} />
 }
