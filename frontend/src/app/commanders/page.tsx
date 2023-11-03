@@ -1,15 +1,12 @@
 import React from 'react'
 import CardGrid, { Card } from '../_components/card-grid'
-
-async function getTopCommanders() {
-  const res = await fetch('http://127.0.0.1:3030/commanders/', {
-    cache: 'no-cache',
-  })
-  return res.json()
-}
+import { fetchJson } from '../_utils/fetch-json'
 
 export default async function Page() {
-  const topCommanders = await getTopCommanders()
+  const topCommanders = await fetchJson<Card[]>('http://127.0.0.1:3030/commanders/', {
+    cache: 'no-cache',
+  })
+
   return (
     <CardGrid cards={topCommanders} linkTo="commander">
       {CardText}

@@ -2,17 +2,11 @@ import { CardPage } from '@/app/_components/card-page'
 import { Card } from '@/app/_components/card-grid'
 import Link from 'next/link'
 import React from 'react'
+import { fetchJson } from '@/app/_utils/fetch-json'
 
 export const dynamicParams = false
 export async function generateStaticParams() {
-  const commanderNames: string[] = await fetch(`http://127.0.0.1:3030/card_slugs`).then((res) => res.json())
-  return commanderNames.map((name) => {
-    card: name
-  })
-}
-
-async function getCommanderBySlug(cardSlug: string): Promise<Card> {
-  return await fetch(`http://127.0.0.1:3030/card/${cardSlug}`).then((res) => res.json())
+  return (await fetchJson<string[]>(`http://127.0.0.1:3030/card_slugs`)).map((name) => ({ card: name }))
 }
 
 // async function getCommanderTopCards(oracle_id: string): Promise<TopCards> {
@@ -21,7 +15,7 @@ async function getCommanderBySlug(cardSlug: string): Promise<Card> {
 
 export default async function Page({ params }: { params: { card: string } }) {
   const cardSlug = params.card
-  const card = await getCommanderBySlug(cardSlug)
+  const card = await fetchJson<Card>(`http://127.0.0.1:3030/card/${cardSlug}`)
   // const topCards = await getCommanderTopCards(commanderCard.oracle_id)
   return (
     <CardPage card={card}>

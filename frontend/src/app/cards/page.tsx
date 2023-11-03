@@ -1,11 +1,11 @@
 import CardGrid, { Card } from '../_components/card-grid'
 import React from 'react'
+import { fetchJson } from '../_utils/fetch-json'
 
 async function getTopCards(): Promise<Card[]> {
-  const res = await fetch('http://127.0.0.1:3030/top_cards', {
+  return await fetchJson<Card[]>('http://127.0.0.1:3030/top_cards', {
     cache: 'no-cache',
   })
-  return res.json()
 }
 
 export default async function Page() {

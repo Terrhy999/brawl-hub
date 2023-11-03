@@ -1,5 +1,6 @@
 import CardGrid, { Card } from '@/app/_components/card-grid'
 import { CardPage } from '@/app/_components/card-page'
+import { fetchJson } from '@/app/_utils/fetch-json'
 import { ClickableChip } from '@/app/commanders/layout'
 import Link from 'next/link'
 import React from 'react'
@@ -21,24 +22,13 @@ type Sections =
 type TopCards = Record<Sections, TopCard[]>
 
 export async function generateStaticParams() {
-  const commanderNames: string[] = await fetch(`http://127.0.0.1:3030/commander_slugs`).then((res) => res.json())
-  return commanderNames.map((name) => {
-    commander: name
-  })
-}
-
-async function getCommanderBySlug(commanderSlug: string): Promise<Card> {
-  return await fetch(`http://127.0.0.1:3030/commander/${commanderSlug}`).then((res) => res.json())
-}
-
-async function getCommanderTopCards(oracle_id: string): Promise<TopCards> {
-  return await fetch(`http://127.0.0.1:3030/top_cards_for_commander/${oracle_id}`).then((res) => res.json())
+  return (await fetchJson<string[]>(`http://127.0.0.1:3030/commander_slugs`)).map((name) => ({ commander: name }))
 }
 
 export default async function Page({ params }: { params: { commander: string } }) {
   const commanderSlug = params.commander
-  const commanderCard = await getCommanderBySlug(commanderSlug)
-  const topCards = await getCommanderTopCards(commanderCard.oracle_id)
+  const commanderCard = await fetchJson<Card>(`http://127.0.0.1:3030/commander/${commanderSlug}`)
+  const topCards = await fetchJson<TopCards>(`http://127.0.0.1:3030/top_cards_for_commander/${commanderCard.oracle_id}`)
   const sections = [
     // ['Top Cards', ],
     // (TODO) replace the _ with a -
