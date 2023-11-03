@@ -1,6 +1,12 @@
-use axum::{debug_handler, extract::{Path, State}, routing::get, Json, Router};
+use axum::{
+    debug_handler,
+    extract::{Path, State},
+    routing::get,
+    Json, Router,
+};
 use sqlx::{postgres::PgPoolOptions, types::Uuid, Pool, Postgres};
-use std::{net::SocketAddr, collections::HashMap};
+use std::{collections::HashMap, net::SocketAddr};
+use tower_http::cors::CorsLayer;
 
 const DATABASE_URL: &str = "postgres://postgres:postgres@localhost/brawlhub";
 
@@ -13,18 +19,17 @@ const DATABASE_URL: &str = "postgres://postgres:postgres@localhost/brawlhub";
 
 #[derive(Clone)]
 struct AppState {
-    pool: Pool<Postgres>
+    pool: Pool<Postgres>,
 }
 
 #[tokio::main]
 async fn main() {
-
     let state = AppState {
         pool: PgPoolOptions::new()
-        .max_connections(5)
-        .connect(DATABASE_URL)
-        .await
-        .expect("Couldn't connect to db"),
+            .max_connections(5)
+            .connect(DATABASE_URL)
+            .await
+            .expect("Couldn't connect to db"),
     };
 
     // DONE /card/:slug route should return alchemy-version of card if one exists
@@ -53,6 +58,8 @@ async fn main() {
             "/top_cards_for_color_identity/:oracle_id",
             get(top_cards_for_color_identity_of_commander),
         )
+        .route("/search/:card_", get(get_card))
+        .layer(CorsLayer::permissive())
         .with_state(state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 3030));
@@ -90,9 +97,9 @@ struct CardCount {
     slug: Option<String>,
 }
 
-async fn card_slugs(State(AppState{pool}): State<AppState>) -> Json<Vec<Option<String>>> {
+async fn card_slugs(State(AppState { pool }): State<AppState>) -> Json<Vec<Option<String>>> {
     struct Response {
-        slug: Option<String>
+        slug: Option<String>,
     }
 
     let res = sqlx::query_as!(Response, "SELECT DISTINCT slug FROM card")
@@ -100,14 +107,18 @@ async fn card_slugs(State(AppState{pool}): State<AppState>) -> Json<Vec<Option<S
     .await
     .expect("couldn't fetch card slugs")
     .into_iter()
-    .map(|res| res.slug).collect();
+    .map(|res| res.slug)
+    .collect();
     Json(res)
 }
 
 #[axum::debug_handler]
-async fn card_by_slug(State(AppState{pool}): State<AppState>, Path(slug): Path<String>) -> Json<CardCount> {
-
-    let res = sqlx::query_as!(CardCount,
+async fn card_by_slug(
+    State(AppState { pool }): State<AppState>,
+    Path(slug): Path<String>,
+) -> Json<CardCount> {
+    let res = sqlx::query_as!(
+        CardCount,
         "SELECT c.*, COUNT(dl.*) as count
         FROM card c 
         LEFT JOIN decklist dl
@@ -120,8 +131,12 @@ async fn card_by_slug(State(AppState{pool}): State<AppState>, Path(slug): Path<S
     Json(res)
 }
 
-async fn commander_by_slug(State(AppState{pool}): State<AppState>, Path(slug): Path<String>) -> Json<CardCount> {
-    let res = sqlx::query_as!(CardCount, 
+async fn commander_by_slug(
+    State(AppState { pool }): State<AppState>,
+    Path(slug): Path<String>,
+) -> Json<CardCount> {
+    let res = sqlx::query_as!(
+        CardCount,
         "SELECT c.*, COUNT(d.*)
         FROM card c
         LEFT JOIN deck d
@@ -132,10 +147,9 @@ async fn commander_by_slug(State(AppState{pool}): State<AppState>, Path(slug): P
     Json(res)
 }
 
-async fn commander_slugs(State(AppState{pool}): State<AppState>) -> Json<Vec<Option<String>>> {
-
+async fn commander_slugs(State(AppState { pool }): State<AppState>) -> Json<Vec<Option<String>>> {
     struct Response {
-        slug: Option<String>
+        slug: Option<String>,
     }
 
     let res: Vec<Option<String>> = sqlx::query_as!(Response, "SELECT DISTINCT slug FROM card WHERE is_legal_commander=true")
@@ -148,9 +162,9 @@ async fn commander_slugs(State(AppState{pool}): State<AppState>) -> Json<Vec<Opt
     Json(res)
 }
 
-async fn top_commanders_colorless(State(AppState{pool}): State<AppState>) -> Json<Vec<CardCount>> {
-
-
+async fn top_commanders_colorless(
+    State(AppState { pool }): State<AppState>,
+) -> Json<Vec<CardCount>> {
     let res = sqlx::query_as!(
         CardCount,
         "SELECT c.*, COUNT(d.commander) as count
@@ -170,7 +184,10 @@ async fn top_commanders_colorless(State(AppState{pool}): State<AppState>) -> Jso
     Json(res)
 }
 
-async fn top_cards_of_color(Path(color): Path<String>, State(AppState{pool}): State<AppState>) -> Json<Vec<CommanderTopCard>> {
+async fn top_cards_of_color(
+    Path(color): Path<String>,
+    State(AppState { pool }): State<AppState>,
+) -> Json<Vec<CommanderTopCard>> {
     let mut not_colors = vec![
         "W".to_string(),
         "U".to_string(),
@@ -207,7 +224,7 @@ async fn top_cards_of_color(Path(color): Path<String>, State(AppState{pool}): St
         AND NOT (c.color_identity && $2::char(1)[])
         ORDER BY num_decks_with_card DESC;        
         ", &colors, &not_colors).fetch_all(&pool).await.expect("error with db");
-        Json(res)
+    Json(res)
 }
 
 async fn top_commanders_of_color(Path(color): Path<String>, State(AppState{pool}): State<AppState>) -> Json<Vec<CardCount>> {
@@ -249,8 +266,10 @@ async fn top_commanders_of_color(Path(color): Path<String>, State(AppState{pool}
     Json(res)
 }
 
-async fn top_commanders_of_color_time(Path((color, time)): Path<(String, String)>, State(AppState{pool}): State<AppState>) -> Json<Vec<CardCount>> {
-
+async fn top_commanders_of_color_time(
+    Path((color, time)): Path<(String, String)>,
+    State(AppState { pool }): State<AppState>,
+) -> Json<Vec<CardCount>> {
     let mut not_colors = vec![
         "W".to_string(),
         "U".to_string(),
@@ -396,7 +415,7 @@ struct TopCard {
     decks_of_color_with_card: Option<i64>,
     usage_in_commander: Option<f64>,
     usage_in_color: Option<f64>,
-    synergy: Option<f64>
+    synergy: Option<f64>,
 }
 
 async fn commander_top_cards(Path(oracle_id): Path<String>, State(AppState{pool}): State<AppState>) -> Json<Vec<TopCard>> {
@@ -472,21 +491,42 @@ async fn commander_top_cards(Path(oracle_id): Path<String>, State(AppState{pool}
         color_identity_map.insert(card.oracle_id.clone(), card);
     }
 
-    let combined_top_cards: Vec<TopCard> = top_cards_for_commander.into_iter().filter_map(|commander_card| {
-        color_identity_map.get(&commander_card.oracle_id).map(|color_identity_card| {
-                let decks_of_commander = commander_card.num_decks_total;
-                let decks_of_commander_with_card = commander_card.num_decks_with_card;
-                let decks_of_color = color_identity_card.num_decks_total;
-                let decks_of_color_with_card = color_identity_card.num_decks_with_card;
-                
-                let usage_in_commander = Some(f64::trunc(decks_of_commander_with_card.unwrap_or(0) as f64 / decks_of_commander.unwrap_or(0) as f64 * 100.0) / 100.0);
-                // println!("{:#?} / {:#?} = {:#?}", decks_of_commander_with_card.unwrap(), decks_of_commander.unwrap(), usage_in_commander.unwrap());
-                
-                let usage_in_color = Some(f64::trunc(decks_of_color_with_card.unwrap_or(0) as f64 / decks_of_color.unwrap_or(0) as f64 * 100.0) / 100.0);
-                // println!("{:#?} / {:#?} = {:#?}", decks_of_color_with_card.unwrap(), decks_of_color.unwrap(), usage_in_color.unwrap());
+    let combined_top_cards: Vec<TopCard> = top_cards_for_commander
+        .into_iter()
+        .filter_map(|commander_card| {
+            color_identity_map
+                .get(&commander_card.oracle_id)
+                .map(|color_identity_card| {
+                    let decks_of_commander = commander_card.num_decks_total;
+                    let decks_of_commander_with_card = commander_card.num_decks_with_card;
+                    let decks_of_color = color_identity_card.num_decks_total;
+                    let decks_of_color_with_card = color_identity_card.num_decks_with_card;
 
-                let synergy = Some(f64::trunc((usage_in_commander.unwrap_or(0.0) - usage_in_color.unwrap_or(0.0)) * 100.0) / 100.0);
-                // println!("{:#?} - {:#?} = {:#?}", usage_in_commander.unwrap(), usage_in_color.unwrap(), synergy.unwrap());
+                    let usage_in_commander = Some(
+                        f64::trunc(
+                            decks_of_commander_with_card.unwrap_or(0) as f64
+                                / decks_of_commander.unwrap_or(0) as f64
+                                * 100.0,
+                        ) / 100.0,
+                    );
+                    // println!("{:#?} / {:#?} = {:#?}", decks_of_commander_with_card.unwrap(), decks_of_commander.unwrap(), usage_in_commander.unwrap());
+
+                    let usage_in_color = Some(
+                        f64::trunc(
+                            decks_of_color_with_card.unwrap_or(0) as f64
+                                / decks_of_color.unwrap_or(0) as f64
+                                * 100.0,
+                        ) / 100.0,
+                    );
+                    // println!("{:#?} / {:#?} = {:#?}", decks_of_color_with_card.unwrap(), decks_of_color.unwrap(), usage_in_color.unwrap());
+
+                    let synergy = Some(
+                        f64::trunc(
+                            (usage_in_commander.unwrap_or(0.0) - usage_in_color.unwrap_or(0.0))
+                                * 100.0,
+                        ) / 100.0,
+                    );
+                    // println!("{:#?} - {:#?} = {:#?}", usage_in_commander.unwrap(), usage_in_color.unwrap(), synergy.unwrap());
 
                 TopCard {
                     oracle_id: commander_card.oracle_id.clone(),
@@ -521,12 +561,13 @@ async fn commander_top_cards(Path(oracle_id): Path<String>, State(AppState{pool}
     }).collect();
 
     Json(combined_top_cards)
-
 }
 
 #[debug_handler]
-async fn top_cards_for_commander(Path(oracle_id): Path<String>, State(AppState{pool}): State<AppState>) -> Json<TopCardsForCommander> {
-
+async fn top_cards_for_commander(
+    Path(oracle_id): Path<String>,
+    State(AppState { pool }): State<AppState>,
+) -> Json<TopCardsForCommander> {
     let res = sqlx::query_as!(
         CommanderTopCard,
         "SELECT c.*, num_decks_with_card, num_decks_total
@@ -618,9 +659,8 @@ async fn top_cards_for_commander(Path(oracle_id): Path<String>, State(AppState{p
 
 async fn top_cards_for_color_identity_of_commander(
     Path(oracle_id): Path<String>,
-    State(AppState{pool}): State<AppState>
+    State(AppState { pool }): State<AppState>,
 ) -> Json<TopCardsForCommander> {
-
     let res = sqlx::query_as!(
         CommanderTopCard,
         "WITH ColorIdentity AS (SELECT color_identity FROM card WHERE oracle_id = $1),
@@ -710,4 +750,54 @@ async fn top_cards_for_color_identity_of_commander(
     }
 
     Json(top_cards_sorted)
+}
+
+// return the front face name the of flip cards
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SearchResults {
+    card_name: String,
+    image: String,
+    slug: String,
+}
+async fn get_card(
+    Path(card_name): Path<String>,
+    State(AppState { pool }): State<AppState>,
+) -> Json<Vec<SearchResults>> {
+    struct Response {
+        name: String,
+        image_art_crop: String,
+        slug: Option<String>,
+        is_commander: bool,
+    }
+    let res = sqlx::query_as!(
+        Response,
+        "SELECT name, image_art_crop, slug, is_commander FROM card WHERE name ILIKE $1 LIMIT 20",
+        format!("%{}%", card_name)
+    )
+    .fetch_all(&pool)
+    .await
+    .expect("couldn't fetch card");
+
+    fn get_route(is_commander: bool, slug: String) -> String {
+        if is_commander {
+            format!("/commander/{}", slug)
+        } else {
+            format!("/card/{}", slug)
+        }
+    }
+
+    fn get_search_results(res: Response) -> SearchResults {
+        match res.slug {
+            Some(slug) => SearchResults {
+                card_name: res.name,
+                image: res.image_art_crop,
+                slug: get_route(res.is_commander, slug),
+            },
+            None => panic!("Not found"),
+        }
+    }
+
+    let search_results: Vec<SearchResults> = res.into_iter().map(get_search_results).collect();
+    Json(search_results)
 }
