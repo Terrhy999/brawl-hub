@@ -20,7 +20,7 @@ async fn main() {
     if false {
         migrate_scryfall_cards(&pool).await;
     }
-    let decks = get_aetherhub_decks(10, 30).await;
+    let decks = get_aetherhub_decks(0, 10).await;
     for deck in decks {
         migrate_aetherhub_decklists(&pool, &deck).await
     }
@@ -298,8 +298,8 @@ async fn migrate_scryfall_cards(pool: &Pool<Postgres>) {
     // println!("{:#?}", cards);
 
     for card in cards {
-        sqlx::query_as!(Card, "INSERT INTO card(oracle_id, name, lang, scryfall_uri, layout, mana_cost, cmc, type_line, oracle_text, colors, color_identity, is_legal, is_legal_commander, rarity, image_small, image_normal, image_large, image_art_crop, image_border_crop, slug)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)",
+        sqlx::query_as!(Card, "INSERT INTO card(oracle_id, name, lang, scryfall_uri, layout, mana_cost, cmc, type_line, oracle_text, colors, color_identity, is_legal, is_legal_commander, rarity, image_small, image_normal, image_large, image_art_crop, image_border_crop, slug, is_alchemy)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)",
             Uuid::parse_str(&card.oracle_id).expect("uuid parsed wrong"),
             card.name,
             card.lang,
@@ -319,7 +319,8 @@ async fn migrate_scryfall_cards(pool: &Pool<Postgres>) {
             card.image_large,
             card.image_art_crop,
             card.image_border_crop,
-            slugify(&card.name)
+            card.slug,
+            card.is_alchemy,
         )
         .execute(pool)
         .await
@@ -516,6 +517,7 @@ struct Card {
     image_large: String,
     image_art_crop: String,
     image_border_crop: String,
+    is_alchemy: bool,
     slug: Option<String>,
 }
 
@@ -625,11 +627,12 @@ impl From<ScryfallCard> for Card {
                 image_large: c.image_uris.large,
                 image_art_crop: c.image_uris.art_crop,
                 image_border_crop: c.image_uris.border_crop,
+                is_alchemy: c.name.clone().starts_with("A-"),
                 slug: Some(slug_sanitized),
             },
             ScryfallCard::TwoFace(c) => Self {
                 oracle_id: c.oracle_id,
-                name: c.name,
+                name: c.name.clone(),
                 mana_cost: Some(c.card_faces[0].mana_cost.clone()),
                 lang: c.lang,
                 scryfall_uri: c.scryfall_uri,
@@ -648,6 +651,7 @@ impl From<ScryfallCard> for Card {
                 image_large: c.card_faces[0].image_uris.large.clone(),
                 image_art_crop: c.card_faces[0].image_uris.art_crop.clone(),
                 image_border_crop: c.card_faces[0].image_uris.border_crop.clone(),
+                is_alchemy: c.name.clone().starts_with("A-"),
                 slug: Some(slug_sanitized),
             },
         }

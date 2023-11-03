@@ -20,7 +20,8 @@ sudo -i -u postgres -H -- psql -d brawlhub -h localhost -c "CREATE TABLE IF NOT 
     image_large text NOT NULL,
     image_art_crop text NOT NULL,
     image_border_crop text NOT NULL,
-    slug text NOT NULL,
+    is_alchemy bool NOT NULL DEFAULT false,
+    slug text NOT NULL
 );
 CREATE TABLE IF NOT EXISTS deck (
     id SERIAL PRIMARY KEY,

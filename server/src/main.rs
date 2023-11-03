@@ -27,8 +27,9 @@ async fn main() {
         .expect("Couldn't connect to db"),
     };
 
-    // /card/:slug route should return alchemy-version of card if one exists
-    // /card_slugs should only return non-alchemy slugs (card.name is non-alchemy now)
+    // DONE /card/:slug route should return alchemy-version of card if one exists
+    // DONE /card_slugs should only return non-alchemy slugs (card.name is non-alchemy now)
+    // /card/:slug route should return count of decks it appears in, and count of decks it could appear in
     // /commander_top_cards/:oracle_id should not return the commander, or basic lands
 
 
@@ -85,6 +86,7 @@ struct CardCount {
     image_art_crop: String,
     image_border_crop: String,
     count: Option<i64>,
+    is_alchemy: bool,
     slug: Option<String>,
 }
 
@@ -93,7 +95,7 @@ async fn card_slugs(State(AppState{pool}): State<AppState>) -> Json<Vec<Option<S
         slug: Option<String>
     }
 
-    let res = sqlx::query_as!(Response, "SELECT DISTINCT slug FROM card WHERE name NOT LIKE 'A-%'")
+    let res = sqlx::query_as!(Response, "SELECT DISTINCT slug FROM card")
     .fetch_all(&pool)
     .await
     .expect("couldn't fetch card slugs")
@@ -110,9 +112,9 @@ async fn card_by_slug(State(AppState{pool}): State<AppState>, Path(slug): Path<S
         FROM card c 
         LEFT JOIN decklist dl
         ON c.oracle_id = dl.oracle_id
-        WHERE slug LIKE $1
+        WHERE slug = $1
         GROUP BY c.oracle_id
-        ORDER BY c.name",
+        ORDER BY c.is_alchemy",
         format!("%{}", slug)
     ).fetch_one(&pool).await.expect("couldn't fetch card by slug");
     Json(res)
@@ -136,7 +138,7 @@ async fn commander_slugs(State(AppState{pool}): State<AppState>) -> Json<Vec<Opt
         slug: Option<String>
     }
 
-    let res: Vec<Option<String>> = sqlx::query_as!(Response, "SELECT slug FROM card WHERE is_legal_commander=true")
+    let res: Vec<Option<String>> = sqlx::query_as!(Response, "SELECT DISTINCT slug FROM card WHERE is_legal_commander=true")
     .fetch_all(&pool)
     .await
     .expect("couldn't fetch slugs")
@@ -209,6 +211,7 @@ async fn top_cards_of_color(Path(color): Path<String>, State(AppState{pool}): St
 }
 
 async fn top_commanders_of_color(Path(color): Path<String>, State(AppState{pool}): State<AppState>) -> Json<Vec<CardCount>> {
+    //Used to display the top commanders of a specific color identity, ordered by the number of decks with this commander
     let mut not_colors = vec![
         "W".to_string(),
         "U".to_string(),
@@ -287,7 +290,7 @@ async fn top_commanders_of_color_time(Path((color, time)): Path<(String, String)
 
 #[debug_handler]
 async fn top_commanders(State(AppState{pool}): State<AppState>) -> Json<Vec<CardCount>> {
-
+    // Used to display every commander, ordered number of decks with this commander
     let res = sqlx::query_as!(
         CardCount,
         "SELECT c.*, COUNT(d.commander) AS count
@@ -307,7 +310,8 @@ async fn top_commanders(State(AppState{pool}): State<AppState>) -> Json<Vec<Card
 
 #[debug_handler]
 async fn top_cards(State(AppState{pool}): State<AppState>) -> Json<Vec<CardCount>> {
-
+    // Used to display the top cards, ordered by the number of decks the card appears in
+    // FIX: Should be ordered by (number of decks the card appears in / number of decks the card CAN appear in)
     let res = sqlx::query_as!(
         CardCount,
         "SELECT c.*, COUNT(dl.oracle_id) AS count
@@ -322,11 +326,6 @@ async fn top_cards(State(AppState{pool}): State<AppState>) -> Json<Vec<CardCount
     .expect("error querying db");
 
     Json(res)
-}
-
-struct Whatever {
-    total_decks: Option<i64>,
-    cards: Option<Vec<CardCount>>
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -352,6 +351,7 @@ struct CommanderTopCard {
     image_border_crop: String,
     num_decks_with_card: Option<i64>,
     num_decks_total: Option<i64>,
+    is_alchemy: bool,
     slug: Option<String>
 }
 
@@ -400,7 +400,10 @@ struct TopCard {
 }
 
 async fn commander_top_cards(Path(oracle_id): Path<String>, State(AppState{pool}): State<AppState>) -> Json<Vec<TopCard>> {
-
+    // Used to display the most commonly played cards in decks helmed by a specific commander
+    // Ordered by the number of decks helmed by this commander, running this card
+    // FIX needs to exlude basic lands and the commander
+    // FIX needs to return the cards as a TopCardsForCommander struct
     let top_cards_for_commander = sqlx::query_as!(
         CommanderTopCard,
         "SELECT c.*, num_decks_with_card, num_decks_total
