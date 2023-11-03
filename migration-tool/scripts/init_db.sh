@@ -13,13 +13,14 @@ sudo -i -u postgres -H -- psql -d brawlhub -h localhost -c "CREATE TABLE IF NOT 
     colors char(1)[],
     color_identity char(1)[] NOT NULL,
     is_legal bool NOT NULL,
-    is_commander bool NOT NULL,
+    is_legal_commander bool NOT NULL,
     rarity text NOT NULL,
     image_small text NOT NULL,
     image_normal text NOT NULL,
     image_large text NOT NULL,
     image_art_crop text NOT NULL,
-    image_border_crop text NOT NULL
+    image_border_crop text NOT NULL,
+    slug text NOT NULL,
 );
 CREATE TABLE IF NOT EXISTS deck (
     id SERIAL PRIMARY KEY,
@@ -28,11 +29,14 @@ CREATE TABLE IF NOT EXISTS deck (
     username text NOT NULL,
     date_created bigint NOT NULL,
     date_updated bigint NOT NULL,
-    commander uuid REFERENCES card(oracle_id) NOT NULL
+    commander uuid REFERENCES card(oracle_id) NOT NULL,
+    companion uuid REFERENCES card(oracle_id)
 );
 CREATE TABLE IF NOT EXISTS decklist (
     oracle_id uuid REFERENCES card(oracle_id),
     deck_id int REFERENCES deck(id),
+    is_companion bool NOT NULL DEFAULT false,
+    is_commander bool NOT NULL DEFAULT false,
     quantity integer NOT NULL,
     PRIMARY KEY (oracle_id, deck_id)
 )"

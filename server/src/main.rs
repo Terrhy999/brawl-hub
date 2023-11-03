@@ -27,6 +27,11 @@ async fn main() {
         .expect("Couldn't connect to db"),
     };
 
+    // /card/:slug route should return alchemy-version of card if one exists
+    // /card_slugs should only return non-alchemy slugs (card.name is non-alchemy now)
+    // /commander_top_cards/:oracle_id should not return the commander, or basic lands
+
+
     let app = Router::new()
         .route("/commander_slugs", get(commander_slugs))
         .route("/card_slugs", get(card_slugs))
@@ -72,7 +77,7 @@ struct CardCount {
     colors: Option<Vec<String>>,
     color_identity: Vec<String>,
     is_legal: bool,
-    is_commander: bool,
+    is_legal_commander: bool,
     rarity: String,
     image_small: String,
     image_normal: String,
@@ -105,9 +110,10 @@ async fn card_by_slug(State(AppState{pool}): State<AppState>, Path(slug): Path<S
         FROM card c 
         LEFT JOIN decklist dl
         ON c.oracle_id = dl.oracle_id
-        WHERE slug = $1
-        GROUP BY c.oracle_id",
-        slug
+        WHERE slug LIKE $1
+        GROUP BY c.oracle_id
+        ORDER BY c.name",
+        format!("%{}", slug)
     ).fetch_one(&pool).await.expect("couldn't fetch card by slug");
     Json(res)
 }
@@ -118,8 +124,9 @@ async fn commander_by_slug(State(AppState{pool}): State<AppState>, Path(slug): P
         FROM card c
         LEFT JOIN deck d
         ON c.oracle_id = d.commander
-        WHERE slug = $1
-        GROUP BY c.oracle_id;", slug).fetch_one(&pool).await.expect("couldn't fetch commander by slug");
+        WHERE slug LIKE $1
+        GROUP BY c.oracle_id
+        ORDER BY c.name;", format!("%{}", slug)).fetch_one(&pool).await.expect("couldn't fetch commander by slug");
     Json(res)
 }
 
@@ -129,7 +136,7 @@ async fn commander_slugs(State(AppState{pool}): State<AppState>) -> Json<Vec<Opt
         slug: Option<String>
     }
 
-    let res: Vec<Option<String>> = sqlx::query_as!(Response, "SELECT slug FROM card WHERE is_commander=true")
+    let res: Vec<Option<String>> = sqlx::query_as!(Response, "SELECT slug FROM card WHERE is_legal_commander=true")
     .fetch_all(&pool)
     .await
     .expect("couldn't fetch slugs")
@@ -147,7 +154,7 @@ async fn top_commanders_colorless(State(AppState{pool}): State<AppState>) -> Jso
         "SELECT c.*, COUNT(d.commander) as count
     FROM card c
     LEFT JOIN deck d ON c.oracle_id = d.commander
-    WHERE c.is_commander = TRUE 
+    WHERE c.is_legal_commander = TRUE 
     -- AND c.is_legal=TRUE
     AND (c.color_identity = '{}'::char(1)[])
     GROUP BY c.oracle_id
@@ -193,7 +200,7 @@ async fn top_cards_of_color(Path(color): Path<String>, State(AppState{pool}): St
                (SELECT COUNT(*) FROM DecksWithCommanderColor dc
                 WHERE dc.id IN (SELECT dl.deck_id FROM decklist dl WHERE dl.oracle_id = c.oracle_id)) AS num_decks_with_card
         FROM card c
-        WHERE c.is_commander = TRUE
+        WHERE c.is_legal_commander = TRUE
         AND (c.color_identity @> $1::char(1)[])
         AND NOT (c.color_identity && $2::char(1)[])
         ORDER BY num_decks_with_card DESC;        
@@ -222,7 +229,7 @@ async fn top_commanders_of_color(Path(color): Path<String>, State(AppState{pool}
         "SELECT c.*, COUNT(d.commander) AS count
         FROM card c
         LEFT JOIN deck d ON c.oracle_id = d.commander
-        WHERE c.is_commander = TRUE
+        WHERE c.is_legal_commander = TRUE
         -- AND c.is_legal=TRUE
         AND c.color_identity @> $1::char(1)[]  -- Checks if it contains all colors in 'colors'
         AND NOT c.color_identity && $2::char(1)[]  -- Checks if it intersects with 'not_colors'
@@ -261,7 +268,7 @@ async fn top_commanders_of_color_time(Path((color, time)): Path<(String, String)
         "SELECT c.*, COUNT(d.commander) AS count
         FROM card c
         LEFT JOIN deck d ON c.oracle_id = d.commander
-        WHERE c.is_commander = TRUE
+        WHERE c.is_legal_commander = TRUE
         -- AND c.is_legal=TRUE
         AND c.color_identity @> $1::char(1)[]  -- Checks if it contains all colors in 'colors'
         AND NOT c.color_identity && $2::char(1)[]  -- Checks if it intersects with 'not_colors'
@@ -286,7 +293,7 @@ async fn top_commanders(State(AppState{pool}): State<AppState>) -> Json<Vec<Card
         "SELECT c.*, COUNT(d.commander) AS count
         FROM card c
         LEFT JOIN deck d ON c.oracle_id = d.commander
-        WHERE c.is_commander = TRUE
+        WHERE c.is_legal_commander = TRUE
         GROUP BY c.oracle_id
         ORDER BY count DESC
         LIMIT 100;"
@@ -336,7 +343,7 @@ struct CommanderTopCard {
     colors: Option<Vec<String>>,
     color_identity: Vec<String>,
     is_legal: bool,
-    is_commander: bool,
+    is_legal_commander: bool,
     rarity: String,
     image_small: String,
     image_normal: String,
@@ -491,7 +498,7 @@ async fn commander_top_cards(Path(oracle_id): Path<String>, State(AppState{pool}
                     colors: commander_card.colors.clone(),
                     color_identity: commander_card.color_identity.clone(),
                     is_legal: commander_card.is_legal,
-                    is_commander: commander_card.is_commander,
+                    is_commander: commander_card.is_legal_commander,
                     rarity: commander_card.rarity.clone(),
                     image_small: commander_card.image_small.clone(),
                     image_normal: commander_card.image_normal.clone(),
