@@ -45,7 +45,7 @@ export default async function Page({ params }: { params: { commander: string } }
   return (
     <>
       <CardPage card={commanderCard}>
-        <nav className="bg-bg-color sticky top-0 flex overflow-auto py-[10px] lg:max-w-[85%] lg:mx-auto">
+        <nav className="bg-bg-color sticky top-[--header-height] flex overflow-auto py-[10px] lg:max-w-[85%] lg:mx-auto">
           {sections.map((section, i) => (
             <ClickableChip key={i} className="mr-1" text={section[0]} href={`#${section[1]}`} />
           ))}

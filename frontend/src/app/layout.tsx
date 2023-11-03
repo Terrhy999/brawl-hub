@@ -26,7 +26,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
 function NavBar() {
   return (
-    <header className="h-[56px] bg-header-color">
+    <header className="h-[--header-height] bg-header-color sticky top-0 z-50">
       <div className="max-w-[85%] mx-auto flex items-center p-4 justify-between">
         <span>BrawlRec</span>
         <nav className="[&>*]:mr-5">
