@@ -126,7 +126,7 @@ async fn card_by_slug(
         WHERE slug = $1
         GROUP BY c.oracle_id
         ORDER BY c.is_alchemy",
-        format!("%{}", slug)
+        slug
     ).fetch_one(&pool).await.expect("couldn't fetch card by slug");
     Json(res)
 }
@@ -141,9 +141,9 @@ async fn commander_by_slug(
         FROM card c
         LEFT JOIN deck d
         ON c.oracle_id = d.commander
-        WHERE slug LIKE $1
+        WHERE slug = $1
         GROUP BY c.oracle_id
-        ORDER BY c.name;", format!("%{}", slug)).fetch_one(&pool).await.expect("couldn't fetch commander by slug");
+        ORDER BY c.name;", slug).fetch_one(&pool).await.expect("couldn't fetch commander by slug");
     Json(res)
 }
 
@@ -768,11 +768,11 @@ async fn get_card(
         name: String,
         image_art_crop: String,
         slug: Option<String>,
-        is_commander: bool,
+        is_legal_commander: bool,
     }
     let res = sqlx::query_as!(
         Response,
-        "SELECT name, image_art_crop, slug, is_commander FROM card WHERE name ILIKE $1 LIMIT 20",
+        "SELECT name, image_art_crop, slug, is_legal_commander FROM card WHERE name ILIKE $1 LIMIT 20",
         format!("%{}%", card_name)
     )
     .fetch_all(&pool)
@@ -792,7 +792,7 @@ async fn get_card(
             Some(slug) => SearchResults {
                 card_name: res.name,
                 image: res.image_art_crop,
-                slug: get_route(res.is_commander, slug),
+                slug: get_route(res.is_legal_commander, slug),
             },
             None => panic!("Not found"),
         }
