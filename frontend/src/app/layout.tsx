@@ -3,6 +3,7 @@ import { Inter } from 'next/font/google'
 import './globals.css'
 import Link from 'next/link'
 import { StrictMode } from 'react'
+import { SearchBar } from './_components/search-bar'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -33,6 +34,7 @@ function NavBar() {
           <Link href={'/commanders/'}>Top Commanders</Link>
           <Link href={'/cards/'}>Top Cards</Link>
         </nav>
+        <SearchBar />
       </div>
     </header>
   )

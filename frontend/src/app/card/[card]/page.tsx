@@ -6,7 +6,8 @@ import { fetchJson } from '@/app/_utils/fetch-json'
 
 export const dynamicParams = false
 export async function generateStaticParams() {
-  return (await fetchJson<string[]>(`http://127.0.0.1:3030/card_slugs`)).map((name) => ({ card: name }))
+  // (TODO) find out why this is undefined sometimes
+  return (await fetchJson<string[]>(`http://127.0.0.1:3030/card_slugs`)).map((name) => ({ card: name || '404' }))
 }
 
 // async function getCommanderTopCards(oracle_id: string): Promise<TopCards> {
