@@ -17,7 +17,7 @@ export async function generateStaticParams() {
 
 export default async function Page({ params = null }: { params: { card: string | 'not-found' } | null }) {
   const cardSlug = params?.card
-  if (cardSlug || cardSlug === 'not-found') {
+  if (cardSlug == null || cardSlug == 'not-found') {
     return <NotFound />
   }
   const card = await fetchJsonFromBrawlhub<Card>(`card/${cardSlug}`)
