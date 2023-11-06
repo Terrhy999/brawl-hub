@@ -111,20 +111,63 @@ async fn card_slugs(State(AppState { pool }): State<AppState>) -> Json<Vec<Optio
     Json(res)
 }
 
+#[derive(serde::Serialize)]
+struct CardBySlug {
+    oracle_id: String,
+    name: String,
+    lang: String,
+    scryfall_uri: String,
+    layout: String,
+    mana_cost: Option<String>,
+    cmc: f32,
+    type_line: String,
+    oracle_text: Option<String>,
+    colors: Option<Vec<String>>,
+    color_identity: Vec<String>,
+    is_legal: bool,
+    is_legal_commander: bool,
+    rarity: String,
+    image_small: String,
+    image_normal: String,
+    image_large: String,
+    image_art_crop: String,
+    image_border_crop: String,
+    is_alchemy: bool,
+    slug: Option<String>,
+    total_decks_with_card: Option<i64>,
+    total_decks_could_play: Option<i64>,
+}
+
 #[axum::debug_handler]
 async fn card_by_slug(
     State(AppState { pool }): State<AppState>,
     Path(slug): Path<String>,
-) -> Json<CardCount> {
+) -> Json<CardBySlug> {
     let res = sqlx::query_as!(
-        CardCount,
-        "SELECT c.*, COUNT(dl.*) as count
-        FROM card c 
-        LEFT JOIN decklist dl
-        ON c.oracle_id = dl.oracle_id
-        WHERE slug = $1
-        GROUP BY c.oracle_id
-        ORDER BY c.is_alchemy",
+        CardBySlug,
+        "WITH CardCounts AS (
+            SELECT
+                c.*,
+                COUNT(DISTINCT dl.deck_id) AS total_decks_with_card
+            FROM
+                card c
+            LEFT JOIN decklist dl ON c.oracle_id = dl.oracle_id
+            WHERE
+                c.slug = $1
+            GROUP BY
+                c.oracle_id, c.name, c.color_identity
+        )
+        SELECT
+            cc.*,
+            COUNT(DISTINCT d.id) AS total_decks_could_play
+        FROM
+            CardCounts cc
+        LEFT JOIN deck d ON (
+            cc.color_identity IS NULL
+            OR d.color_identity @> cc.color_identity
+        )
+        GROUP BY
+        cc.oracle_id, cc.name, cc.color_identity, cc.lang, cc.scryfall_uri, cc.layout, cc.mana_cost, cc.cmc, cc.type_line, cc.oracle_text, cc.colors, cc.is_legal, cc.is_legal_commander, cc.rarity, cc.image_small, cc.image_normal, cc.image_large, cc.image_art_crop, cc.image_border_crop, cc.is_alchemy, cc.slug, cc.total_decks_with_card;",
         slug
     )
     .fetch_one(&pool)

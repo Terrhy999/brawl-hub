@@ -20,7 +20,7 @@ async fn main() {
     if false {
         migrate_scryfall_cards(&pool).await;
     }
-    let decks = get_aetherhub_decks(0, 10).await;
+    let decks = get_aetherhub_decks(0, 50).await;
     for deck in decks {
         migrate_aetherhub_decklists(&pool, &deck).await
     }
@@ -143,6 +143,7 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
         struct OracleId {
             oracle_id: Option<Uuid>,
             name: Option<String>,
+            color_identity: Option<Vec<String>>,
         }
 
         let alchemy_flip = format!("{} //%", card.a_name);
@@ -150,11 +151,11 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
 
         sqlx::query_as!(
             OracleId,
-            "SELECT name, oracle_id FROM (
-            SELECT oracle_id, name, 1 AS priority FROM card WHERE unaccent(name) LIKE unaccent($1)
-            UNION SELECT oracle_id, name, 2 AS priority FROM card WHERE unaccent(name) LIKE unaccent($2)
-            UNION SELECT oracle_id, name, 3 AS priority FROM card WHERE unaccent(name) = unaccent($3)
-            UNION SELECT oracle_id, name, 4 AS priority FROM card WHERE unaccent(name) = unaccent($4)
+            "SELECT name, oracle_id, color_identity FROM (
+            SELECT oracle_id, name, color_identity, 1 AS priority FROM card WHERE unaccent(name) LIKE unaccent($1)
+            UNION SELECT oracle_id, name, color_identity, 2 AS priority FROM card WHERE unaccent(name) LIKE unaccent($2)
+            UNION SELECT oracle_id, name, color_identity, 3 AS priority FROM card WHERE unaccent(name) = unaccent($3)
+            UNION SELECT oracle_id, name, color_identity, 4 AS priority FROM card WHERE unaccent(name) = unaccent($4)
             ) as result
             ORDER BY priority",
             alchemy_flip, // Search for alchemy flip cards with "A-name //%"
@@ -169,7 +170,6 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
     });
 
     let card_ids = join_all(card_ids).await;
-    // println!("{:#?}", card_ids);
 
     #[derive(Debug)]
     struct CombinedCardData {
@@ -179,6 +179,7 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
         is_commander: bool,
         is_companion: bool,
         quantity: Option<i32>,
+        color_identity: Vec<String>,
     }
 
     let combined_card_data: Vec<CombinedCardData> = aetherhub_decklist
@@ -191,22 +192,17 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
             is_commander: decklist_card.is_commander,
             is_companion: decklist_card.is_companion,
             quantity: decklist_card.quantity,
+            color_identity: card_id.color_identity.expect("color_identity missing"),
         })
         .collect();
-
-    // println!("{:#?}", combined_card_data);
 
     struct DeckID {
         id: i32,
     }
 
-    let commander = combined_card_data
+    let commander_info = combined_card_data
         .iter()
         .find(|card| card.is_commander)
-        .map(|card| {
-            card.oracle_id
-                .expect("couldn't find oracle_id of card where 'is_commander' = true")
-        })
         .unwrap();
 
     let companion = combined_card_data
@@ -219,8 +215,8 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
 
     sqlx::query_as!(
         AetherHubDeck,
-        "INSERT INTO deck (id, deck_id, url, username, date_created, date_updated, commander, companion)
-        VALUES (DEFAULT, $1, $2, $3, $4, $5, $6, $7)
+        "INSERT INTO deck (id, deck_id, url, username, date_created, date_updated, commander, companion, color_identity)
+        VALUES (DEFAULT, $1, $2, $3, $4, $5, $6, $7, $8)
         ON CONFLICT (deck_id) DO NOTHING",
         // Uuid::parse_str(&deck.id).expect("uuid parsed wrong"),
         deck.id,
@@ -228,8 +224,9 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
         deck.username,
         deck.created,
         deck.updated,
-        commander,
-        companion
+        commander_info.oracle_id.expect("no oracle_id for commander"),
+        companion,
+        &commander_info.color_identity,
     )
     .execute(pool)
     .await
@@ -248,7 +245,12 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
 
     for card in combined_card_data {
         // let deck_id = Uuid::parse_str(deck.id.as_str()).expect("uuid parsed wrong");
-        println!("{}, {:#?}, {}", deck.id, card.oracle_id, card.name);
+        println!(
+            "Insert {}, {} into {}",
+            card.name,
+            card.oracle_id.unwrap(),
+            deck_id.id
+        );
         sqlx::query!(
             "INSERT INTO decklist (oracle_id, deck_id, quantity, is_companion, is_commander)
             VALUES ($1, $2, $3, $4, $5)
@@ -295,9 +297,11 @@ async fn migrate_scryfall_cards(pool: &Pool<Postgres>) {
         .map(Card::from)
         .collect::<Vec<Card>>();
 
-    // println!("{:#?}", cards);
-
     for card in cards {
+        println!(
+            "Insert {}, {} into brawlhub.card",
+            card.name, card.oracle_id
+        );
         sqlx::query_as!(Card, "INSERT INTO card(oracle_id, name, lang, scryfall_uri, layout, mana_cost, cmc, type_line, oracle_text, colors, color_identity, is_legal, is_legal_commander, rarity, image_small, image_normal, image_large, image_art_crop, image_border_crop, slug, is_alchemy)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)",
             Uuid::parse_str(&card.oracle_id).expect("uuid parsed wrong"),

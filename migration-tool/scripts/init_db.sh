@@ -31,7 +31,8 @@ CREATE TABLE IF NOT EXISTS deck (
     date_created bigint NOT NULL,
     date_updated bigint NOT NULL,
     commander uuid REFERENCES card(oracle_id) NOT NULL,
-    companion uuid REFERENCES card(oracle_id)
+    companion uuid REFERENCES card(oracle_id),
+    color_identity char(1)[] NOT NULL
 );
 CREATE TABLE IF NOT EXISTS decklist (
     oracle_id uuid REFERENCES card(oracle_id),
