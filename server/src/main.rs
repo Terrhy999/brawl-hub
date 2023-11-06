@@ -832,7 +832,7 @@ async fn get_card(
     }
     let res = sqlx::query_as!(
         Response,
-        "SELECT name, image_art_crop, slug, is_legal_commander FROM card WHERE name ILIKE $1 LIMIT 20",
+        "SELECT name, image_art_crop, slug, is_legal_commander FROM card WHERE is_legal = true AND name ILIKE $1 LIMIT 20",
         format!("%{}%", card_name)
     )
     .fetch_all(&pool)
