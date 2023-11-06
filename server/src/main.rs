@@ -34,7 +34,7 @@ async fn main() {
 
     // DONE /card/:slug route should return alchemy-version of card if one exists
     // DONE /card_slugs should only return non-alchemy slugs (card.name is non-alchemy now)
-    // /card/:slug route should return count of decks it appears in, and count of decks it could appear in
+    // DONE /card/:slug route should return count of decks it appears in, and count of decks it could appear in
     // /commander_top_cards/:oracle_id should not return the commander, or basic lands
 
     let app = Router::new()
@@ -387,16 +387,35 @@ async fn top_commanders(State(AppState { pool }): State<AppState>) -> Json<Vec<C
 }
 
 #[debug_handler]
-async fn top_cards(State(AppState { pool }): State<AppState>) -> Json<Vec<CardCount>> {
+async fn top_cards(State(AppState { pool }): State<AppState>) -> Json<Vec<CardBySlug>> {
     // Used to display the top cards, ordered by the number of decks the card appears in
     // FIX: Should be ordered by (number of decks the card appears in / number of decks the card CAN appear in)
     let res = sqlx::query_as!(
-        CardCount,
-        "SELECT c.*, COUNT(dl.oracle_id) AS count
-        FROM card c
-        LEFT JOIN decklist dl ON c.oracle_id = dl.oracle_id
-        GROUP BY c.oracle_id
-        ORDER BY count DESC
+        CardBySlug,
+        "WITH CardCounts AS (
+            SELECT
+                c.*,
+                COUNT(DISTINCT dl.deck_id) AS total_decks_with_card
+            FROM
+                card c
+            LEFT JOIN decklist dl ON c.oracle_id = dl.oracle_id
+            GROUP BY
+                c.oracle_id, c.name, c.color_identity
+        )
+        SELECT
+            cc.*,
+            COUNT(DISTINCT d.id) AS total_decks_could_play
+        FROM
+            CardCounts cc
+        LEFT JOIN deck d ON (
+                cc.color_identity IS NULL
+                OR d.color_identity @> cc.color_identity
+            )
+        GROUP BY
+        cc.oracle_id, cc.name, cc.color_identity, cc.lang, cc.scryfall_uri, cc.layout, cc.mana_cost, cc.cmc, cc.type_line, cc.oracle_text, cc.colors, cc.is_legal, cc.is_legal_commander, cc.rarity, cc.image_small, cc.image_normal, cc.image_large, cc.image_art_crop, cc.image_border_crop, cc.is_alchemy, cc.slug, cc.total_decks_with_card
+        ORDER BY
+        (cc.total_decks_with_card * 100 / NULLIF(COUNT(DISTINCT d.id), 0)) DESC,
+        cc.total_decks_with_card DESC
         LIMIT 100;"
     )
     .fetch_all(&pool)
