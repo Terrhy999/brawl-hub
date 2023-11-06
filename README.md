@@ -1,2 +1,2 @@
 # Brawl-Hub
-A rust application to scrape Historic Brawl Magic: the Gathering decklists from various sources, and soon to be a website to provide useful data and stats on decklists and commanders.
+Brawlhub is a deck analysis tool for Historic Brawl, the arena only Magic the Gathering format. Brawlhub analyses thousands of decklists from popular deck-building websites providing useful insights to help you build your deck.
