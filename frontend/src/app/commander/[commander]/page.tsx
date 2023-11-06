@@ -71,9 +71,11 @@ export default async function Page({ params }: { params: { commander: string } }
 function CardText(commanderCard: Card): (card: TopCard) => React.ReactNode {
   return function Text(card: TopCard) {
     return (
-      <div>
-        <span className="text-accent-color">{getPercentage(card.num_decks_with_card, commanderCard?.count ?? 1)}%</span>
-        of {commanderCard.count}
+      <div className="text-center mt-1">
+        <div>
+          {getPercentage(card.num_decks_with_card, commanderCard?.count ?? 1)}% of {commanderCard.count} decks
+        </div>
+        <div>synergy</div>
       </div>
     )
   }

@@ -40,12 +40,14 @@ export default async function CardGrid({
   return (
     <div className="grid gap-y-5 grid-cols-[repeat(auto-fill,minmax(245px,1fr))]">
       {cards.map((card, i) => (
-        <Link key={i} href={`/${linkTo}/${card.slug}`}>
-          <div className="flex flex-col items-center">
-            <Card card={card} />
-            {children != undefined ? children(card, i) : undefined}
-          </div>
-        </Link>
+        <div key={i}>
+          <Link href={`/${linkTo}/${card.slug}`}>
+            <div className="flex flex-col items-center">
+              <Card card={card} />
+            </div>
+          </Link>
+          {children != undefined ? children(card, i) : undefined}
+        </div>
       ))}
     </div>
   )
