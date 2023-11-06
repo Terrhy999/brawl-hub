@@ -1,11 +1,9 @@
 import CardGrid, { Card } from '../_components/card-grid'
 import React from 'react'
-import { fetchJson } from '../_utils/fetch-json'
+import { fetchJsonFromBrawlhub } from '../_utils/fetch-json'
 
 async function getTopCards(): Promise<Card[]> {
-  return await fetchJson<Card[]>('http://127.0.0.1:3030/top_cards', {
-    cache: 'no-cache',
-  })
+  return await fetchJsonFromBrawlhub<Card[]>('top_cards')
 }
 
 export default async function Page() {

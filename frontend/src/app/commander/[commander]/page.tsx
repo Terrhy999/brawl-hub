@@ -1,6 +1,6 @@
 import CardGrid, { Card } from '@/app/_components/card-grid'
 import { CardPage } from '@/app/_components/card-page'
-import { fetchJson } from '@/app/_utils/fetch-json'
+import { fetchJsonFromBrawlhub } from '@/app/_utils/fetch-json'
 import { ClickableChip } from '@/app/commanders/layout'
 import Link from 'next/link'
 import React from 'react'
@@ -22,13 +22,13 @@ type Sections =
 type TopCards = Record<Sections, TopCard[]>
 
 export async function generateStaticParams() {
-  return (await fetchJson<string[]>(`http://127.0.0.1:3030/commander_slugs`)).map((name) => ({ commander: name }))
+  return (await fetchJsonFromBrawlhub<string[]>(`commander_slugs`)).map((name) => ({ commander: name }))
 }
 
 export default async function Page({ params }: { params: { commander: string } }) {
   const commanderSlug = params.commander
-  const commanderCard = await fetchJson<Card>(`http://127.0.0.1:3030/commander/${commanderSlug}`)
-  const topCards = await fetchJson<TopCards>(`http://127.0.0.1:3030/top_cards_for_commander/${commanderCard.oracle_id}`)
+  const commanderCard = await fetchJsonFromBrawlhub<Card>(`commander/${commanderSlug}`)
+  const topCards = await fetchJsonFromBrawlhub<TopCards>(`top_cards_for_commander/${commanderCard.oracle_id}`)
   const sections = [
     // ['Top Cards', ],
     // (TODO) replace the _ with a -

@@ -1,6 +1,6 @@
 import CardGrid, { Card } from '@/app/_components/card-grid'
 import { colorCombinations } from '@/app/_utils/color-combinations'
-import { fetchJson } from '@/app/_utils/fetch-json'
+import { fetchJsonFromBrawlhub } from '@/app/_utils/fetch-json'
 
 export const dynamicParams = false
 export async function generateStaticParams() {
@@ -8,7 +8,7 @@ export async function generateStaticParams() {
 }
 
 export default async function Page({ params }: { params: { colorIdentity: string } }) {
-  const commandersOfColorIdentity = await fetchJson<Card[]>(`http://127.0.0.1:3030/commanders/${params.colorIdentity}`)
+  const commandersOfColorIdentity = await fetchJsonFromBrawlhub<Card[]>(`commanders/${params.colorIdentity}`)
   return (
     <CardGrid cards={commandersOfColorIdentity} linkTo="commander">
       {CardText}

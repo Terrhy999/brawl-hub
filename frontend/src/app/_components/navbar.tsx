@@ -2,8 +2,8 @@
 
 import { ChangeEvent, MouseEventHandler, useEffect, useState } from 'react'
 import Image from 'next/image'
-import { fetchJson } from '../_utils/fetch-json'
 import Link from 'next/link'
+import { fetchJsonFromPublic } from '../_utils/fetch-json'
 export function NavBar() {
   const [isHamburgerMenuHidden, setHamburgerMenuHidden] = useState(true)
   return (
@@ -142,5 +142,5 @@ function MagnifyingGlass({ className }: { className: string }) {
 }
 
 async function searchCard(cardName: string) {
-  return await fetchJson<SearchResults[]>(`http://127.0.0.1:3030/search/${cardName}`)
+  return await fetchJsonFromPublic<SearchResults[]>(`search/${cardName}`)
 }

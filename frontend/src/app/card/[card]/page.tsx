@@ -2,12 +2,12 @@ import { CardPage } from '@/app/_components/card-page'
 import { Card } from '@/app/_components/card-grid'
 import Link from 'next/link'
 import React from 'react'
-import { fetchJson } from '@/app/_utils/fetch-json'
+import { fetchJsonFromBrawlhub } from '@/app/_utils/fetch-json'
 
 export const dynamicParams = false
 export async function generateStaticParams() {
   // (TODO) find out why this is undefined sometimes
-  return (await fetchJson<string[]>(`http://127.0.0.1:3030/card_slugs`)).map((name) => ({ card: name || '404' }))
+  return (await fetchJsonFromBrawlhub<string[]>(`card_slugs`)).map((name) => ({ card: name || '404' }))
 }
 
 // async function getCommanderTopCards(oracle_id: string): Promise<TopCards> {
@@ -16,7 +16,7 @@ export async function generateStaticParams() {
 
 export default async function Page({ params }: { params: { card: string } }) {
   const cardSlug = params.card
-  const card = await fetchJson<Card>(`http://127.0.0.1:3030/card/${cardSlug}`)
+  const card = await fetchJsonFromBrawlhub<Card>(`card/${cardSlug}`)
   // const topCards = await getCommanderTopCards(commanderCard.oracle_id)
   return (
     <CardPage card={card}>
