@@ -101,7 +101,10 @@ async fn card_slugs(State(AppState { pool }): State<AppState>) -> Json<Vec<Optio
         slug: Option<String>,
     }
 
-    let res = sqlx::query_as!(Response, "SELECT DISTINCT slug FROM card")
+    let res = sqlx::query_as!(
+        Response,
+        "SELECT DISTINCT slug FROM card WHERE is_legal=true"
+    )
         .fetch_all(&pool)
         .await
         .expect("couldn't fetch card slugs")
