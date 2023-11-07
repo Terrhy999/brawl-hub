@@ -5,7 +5,7 @@ use axum::{
     Json, Router,
 };
 use sqlx::{postgres::PgPoolOptions, types::Uuid, Pool, Postgres};
-use std::{collections::HashMap, net::SocketAddr};
+use std::net::SocketAddr;
 use tower_http::cors::CorsLayer;
 
 const DATABASE_URL: &str = "postgres://postgres:postgres@localhost/brawlhub";
@@ -477,153 +477,231 @@ struct TopCard {
     synergy: Option<f64>,
 }
 
+#[derive(Debug, serde::Serialize)]
+struct TopCard2 {
+    oracle_id: String,
+    lang: String,
+    name: String,
+    scryfall_uri: String,
+    layout: String,
+    mana_cost: Option<String>,
+    cmc: f32,
+    type_line: String,
+    oracle_text: Option<String>,
+    colors: Option<Vec<String>>,
+    color_identity: Vec<String>,
+    is_legal: bool,
+    is_legal_commander: bool,
+    rarity: String,
+    image_small: String,
+    image_normal: String,
+    image_large: String,
+    image_art_crop: String,
+    image_border_crop: String,
+    slug: Option<String>,
+    is_alchemy: bool,
+    quantity: Option<i64>,
+    total_commander_decks: Option<i64>,
+    ci_quantity: Option<i64>,
+    total_commander_decks_of_ci: Option<i64>,
+}
+
+#[derive(Debug, serde::Serialize, Clone)]
+struct TopCardWithSynergy {
+    oracle_id: String,
+    lang: String,
+    name: String,
+    scryfall_uri: String,
+    layout: String,
+    mana_cost: Option<String>,
+    cmc: f32,
+    type_line: String,
+    oracle_text: Option<String>,
+    colors: Option<Vec<String>>,
+    color_identity: Vec<String>,
+    is_legal: bool,
+    is_legal_commander: bool,
+    rarity: String,
+    image_small: String,
+    image_normal: String,
+    image_large: String,
+    image_art_crop: String,
+    image_border_crop: String,
+    slug: Option<String>,
+    is_alchemy: bool,
+    quantity: Option<i64>,
+    total_commander_decks: Option<i64>,
+    ci_quantity: Option<i64>,
+    total_commander_decks_of_ci: Option<i64>,
+    synergy: f64,
+    usage_in_commander: f64,
+    usage_in_color: f64,
+}
+
+impl TopCardWithSynergy {
+    fn add_synergy(other: &TopCard2) -> Self {
+        let usage_in_commander =
+            (other.quantity.unwrap() as f64 / other.total_commander_decks.unwrap() as f64) * 100.00;
+        let usage_in_color = (other.ci_quantity.unwrap() as f64
+            / other.total_commander_decks_of_ci.unwrap() as f64)
+            * 100.00;
+        TopCardWithSynergy {
+            oracle_id: other.oracle_id.clone(),
+            lang: other.lang.clone(),
+            name: other.name.clone(),
+            scryfall_uri: other.scryfall_uri.clone(),
+            layout: other.layout.clone(),
+            mana_cost: other.mana_cost.clone(),
+            cmc: other.cmc,
+            type_line: other.type_line.clone(),
+            oracle_text: other.oracle_text.clone(),
+            colors: other.colors.clone(),
+            color_identity: other.color_identity.clone(),
+            is_legal: other.is_legal,
+            is_legal_commander: other.is_legal_commander,
+            rarity: other.rarity.clone(),
+            image_small: other.image_small.clone(),
+            image_normal: other.image_normal.clone(),
+            image_large: other.image_large.clone(),
+            image_art_crop: other.image_art_crop.clone(),
+            image_border_crop: other.image_border_crop.clone(),
+            slug: other.slug.clone(),
+            is_alchemy: other.is_alchemy,
+            quantity: other.quantity,
+            total_commander_decks: other.total_commander_decks,
+            ci_quantity: other.ci_quantity,
+            total_commander_decks_of_ci: other.total_commander_decks_of_ci,
+            usage_in_commander,
+            usage_in_color,
+            synergy: usage_in_commander - usage_in_color,
+        }
+    }
+}
+
+#[derive(Debug, serde::Serialize)]
+struct TopCardsForCommander2 {
+    creatures: Vec<TopCardWithSynergy>,
+    instants: Vec<TopCardWithSynergy>,
+    sorceries: Vec<TopCardWithSynergy>,
+    utility_artifacts: Vec<TopCardWithSynergy>,
+    enchantments: Vec<TopCardWithSynergy>,
+    planeswalkers: Vec<TopCardWithSynergy>,
+    mana_artifacts: Vec<TopCardWithSynergy>,
+    lands: Vec<TopCardWithSynergy>,
+}
+// TODO Clean this up
 async fn commander_top_cards(
     Path(oracle_id): Path<String>,
     State(AppState { pool }): State<AppState>,
-) -> Json<Vec<TopCard>> {
-    // Used to display the most commonly played cards in decks helmed by a specific commander
-    // Ordered by the number of decks helmed by this commander, running this card
-    // FIX needs to exlude basic lands and the commander
-    // FIX needs to return the cards as a TopCardsForCommander struct
+) -> Json<TopCardsForCommander2> {
     let top_cards_for_commander = sqlx::query_as!(
-        CommanderTopCard,
-        "SELECT c.*, num_decks_with_card, num_decks_total
-        FROM card c
+        TopCard2,
+        "SELECT card.*, quantity, total_commander_decks, ci_quantity, total_commander_decks_of_ci FROM card
         JOIN (
-            SELECT c1.oracle_id, COUNT(dl1.deck_id) AS num_decks_with_card
-            FROM card c1
-            LEFT JOIN decklist dl1 ON c1.oracle_id = dl1.oracle_id
-            WHERE dl1.deck_id IN (
-                SELECT id
+            SELECT oracle_id, COUNT(oracle_id) as quantity FROM decklist
+            LEFT JOIN deck ON decklist.deck_id = deck.id
+            WHERE commander = $1 AND oracle_id <> $1
+            GROUP BY oracle_id
+        ) AS card_quantity ON card_quantity.oracle_id = card.oracle_id
+        JOIN (
+            SELECT COUNT(*) AS total_commander_decks
                 FROM deck
                 WHERE commander = $1
-            )
-            GROUP BY c1.oracle_id
-        )
-        AS CardPlayCounts ON c.oracle_id = CardPlayCounts.oracle_id
+        ) AS total_commander_decks ON true
         JOIN (
-            SELECT COUNT(*) AS num_decks_total
+            SELECT oracle_id, COUNT(oracle_id) as ci_quantity FROM decklist
+            LEFT JOIN deck ON decklist.deck_id = deck.id
+            WHERE color_identity = (SELECT color_identity FROM card WHERE oracle_id = $1)
+            GROUP BY oracle_id
+        ) AS ci_card_quantity ON ci_card_quantity.oracle_id = card.oracle_id
+        JOIN (
+            SELECT COUNT(*) AS total_commander_decks_of_ci
             FROM deck
-            WHERE commander = $1
-        ) 
-        AS TotalCommanderDecks ON true
-        WHERE num_decks_total > 0
-        ORDER BY num_decks_with_card DESC;",
-        Uuid::parse_str(&oracle_id).expect("uuid parsed wrong")
+            WHERE color_identity = (SELECT color_identity FROM card WHERE oracle_id = $1)
+        ) AS total_commander_decks_of_ci ON true
+        WHERE card.type_line NOT LIKE 'Basic Land%'
+        ORDER BY quantity DESC
+        LIMIT 1000;",
+        Uuid::parse_str(&oracle_id).expect("uuid parsed wrong"),
     )
     .fetch_all(&pool)
     .await
     .expect("error querying db");
 
-    let top_cards_for_color_identity = sqlx::query_as!(
-        CommanderTopCard,
-        "WITH ColorIdentity AS (SELECT color_identity FROM card WHERE oracle_id = $1),
-        DecksWithCommanderColor AS (
-            SELECT d.id
-            FROM deck d
-            WHERE EXISTS (
-                SELECT 1
-                FROM card c
-                WHERE d.commander = c.oracle_id
-                AND (
-                    (c.color_identity = (SELECT * FROM ColorIdentity))
-                    OR
-                    ((SELECT * FROM ColorIdentity) = '{}'::char(1)[] AND c.color_identity = ARRAY[]::char(1)[])
-                )
-            )
-        )
-        SELECT DISTINCT c.*,
-               (SELECT COUNT(*) FROM DecksWithCommanderColor) AS num_decks_total,
-               (SELECT COUNT(*) FROM DecksWithCommanderColor dc
-                WHERE dc.id IN (SELECT dl.deck_id FROM decklist dl WHERE dl.oracle_id = c.oracle_id)) AS num_decks_with_card
-        FROM card c
-        JOIN decklist dl ON c.oracle_id = dl.oracle_id
-        WHERE dl.deck_id IN (SELECT id FROM DecksWithCommanderColor)
-        ORDER BY num_decks_with_card DESC;
-        ",
-        Uuid::parse_str(&oracle_id).expect("uuid parsed wrong")
-    )
-    .fetch_all(&pool)
-    .await
-    .expect("couldn't query db");
+    let top_cards_for_commander = top_cards_for_commander
+        .iter()
+        .map(TopCardWithSynergy::add_synergy);
 
-    let mut color_identity_map: HashMap<String, CommanderTopCard> = HashMap::new();
+    let mut top_cards = TopCardsForCommander2 {
+        creatures: vec![],
+        instants: vec![],
+        sorceries: vec![],
+        utility_artifacts: vec![],
+        enchantments: vec![],
+        planeswalkers: vec![],
+        mana_artifacts: vec![],
+        lands: vec![],
+    };
 
-    for card in top_cards_for_color_identity {
-        color_identity_map.insert(card.oracle_id.clone(), card);
+    fn is_mana_artifact(card: &TopCardWithSynergy) -> bool {
+        card.type_line.to_ascii_lowercase().contains("artifact")
+            && card
+                .oracle_text
+                .clone()
+                .expect("missing oracle text")
+                .to_ascii_lowercase()
+                .contains("add")
+            && card
+                .oracle_text
+                .clone()
+                .expect("missing oracle text")
+                .to_ascii_lowercase()
+                .contains("mana")
     }
 
-    let combined_top_cards: Vec<TopCard> = top_cards_for_commander
-        .into_iter()
-        .filter_map(|commander_card| {
-            color_identity_map
-                .get(&commander_card.oracle_id)
-                .map(|color_identity_card| {
-                    let decks_of_commander = commander_card.num_decks_total;
-                    let decks_of_commander_with_card = commander_card.num_decks_with_card;
-                    let decks_of_color = color_identity_card.num_decks_total;
-                    let decks_of_color_with_card = color_identity_card.num_decks_with_card;
+    for card in top_cards_for_commander.into_iter() {
+        match &card {
+            t if t.type_line.to_ascii_lowercase().contains("creature")
+                && top_cards.creatures.len() < 50 =>
+            {
+                top_cards.creatures.push(card)
+            }
+            t if t.type_line.to_ascii_lowercase().contains("instant")
+                && top_cards.instants.len() < 50 =>
+            {
+                top_cards.instants.push(card)
+            }
+            t if t.type_line.to_ascii_lowercase().contains("sorcery")
+                && top_cards.sorceries.len() < 50 =>
+            {
+                top_cards.sorceries.push(card)
+            }
+            t if t.type_line.to_ascii_lowercase().contains("planeswalker")
+                && top_cards.planeswalkers.len() < 50 =>
+            {
+                top_cards.planeswalkers.push(card)
+            }
+            t if t.type_line.to_ascii_lowercase().contains("enchantment")
+                && top_cards.enchantments.len() < 50 =>
+            {
+                top_cards.enchantments.push(card)
+            }
+            t if t.type_line.to_ascii_lowercase().contains("land")
+                && top_cards.lands.len() < 50 =>
+            {
+                top_cards.lands.push(card)
+            }
+            t if is_mana_artifact(&t) => top_cards.mana_artifacts.push(card),
+            t if t.type_line.to_ascii_lowercase().contains("artifact")
+                && top_cards.utility_artifacts.len() < 50 =>
+            {
+                top_cards.utility_artifacts.push(card)
+            }
+            _ => (),
+        };
+    }
 
-                    let usage_in_commander = Some(
-                        f64::trunc(
-                            decks_of_commander_with_card.unwrap_or(0) as f64
-                                / decks_of_commander.unwrap_or(0) as f64
-                                * 100.0,
-                        ) / 100.0,
-                    );
-                    // println!("{:#?} / {:#?} = {:#?}", decks_of_commander_with_card.unwrap(), decks_of_commander.unwrap(), usage_in_commander.unwrap());
-
-                    let usage_in_color = Some(
-                        f64::trunc(
-                            decks_of_color_with_card.unwrap_or(0) as f64
-                                / decks_of_color.unwrap_or(0) as f64
-                                * 100.0,
-                        ) / 100.0,
-                    );
-                    // println!("{:#?} / {:#?} = {:#?}", decks_of_color_with_card.unwrap(), decks_of_color.unwrap(), usage_in_color.unwrap());
-
-                    let synergy = Some(
-                        f64::trunc(
-                            (usage_in_commander.unwrap_or(0.0) - usage_in_color.unwrap_or(0.0))
-                                * 100.0,
-                        ) / 100.0,
-                    );
-                    // println!("{:#?} - {:#?} = {:#?}", usage_in_commander.unwrap(), usage_in_color.unwrap(), synergy.unwrap());
-
-                    TopCard {
-                        oracle_id: commander_card.oracle_id.clone(),
-                        name: commander_card.name.clone(),
-                        lang: commander_card.lang.clone(),
-                        scryfall_uri: commander_card.scryfall_uri.clone(),
-                        layout: commander_card.layout.clone(),
-                        mana_cost: commander_card.mana_cost.clone(),
-                        cmc: commander_card.cmc,
-                        type_line: commander_card.type_line.clone(),
-                        oracle_text: commander_card.oracle_text.clone(),
-                        colors: commander_card.colors.clone(),
-                        color_identity: commander_card.color_identity.clone(),
-                        is_legal: commander_card.is_legal,
-                        is_commander: commander_card.is_legal_commander,
-                        rarity: commander_card.rarity.clone(),
-                        image_small: commander_card.image_small.clone(),
-                        image_normal: commander_card.image_normal.clone(),
-                        image_large: commander_card.image_large.clone(),
-                        image_art_crop: commander_card.image_art_crop.clone(),
-                        image_border_crop: commander_card.image_border_crop.clone(),
-                        slug: commander_card.slug.clone(),
-                        total_decks_of_commander: decks_of_commander,
-                        decks_of_commander_with_card,
-                        total_decks_of_color: decks_of_color,
-                        decks_of_color_with_card,
-                        usage_in_commander,
-                        usage_in_color,
-                        synergy,
-                    }
-                })
-        })
-        .collect();
-
-    Json(combined_top_cards)
+    Json(top_cards)
 }
 
 #[debug_handler]
