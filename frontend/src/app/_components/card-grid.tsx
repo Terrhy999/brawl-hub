@@ -53,6 +53,14 @@ export default async function CardGrid({
   )
 }
 
+export async function CardGridWithText({ cards, linkTo = 'card' }: { cards: Card[]; linkTo?: 'commander' | 'card' }) {
+  return (
+    <CardGrid cards={cards} linkTo={linkTo}>
+      {CardText}
+    </CardGrid>
+  )
+}
+
 export function Card({
   card,
   className = '',
@@ -72,5 +80,14 @@ export function Card({
       width={width}
       height={height}
     />
+  )
+}
+
+function CardText(card: Card, i: number): React.ReactNode {
+  return (
+    <div className="text-center">
+      <div>Rank #{i + 1}</div>
+      <div>{card.count} decks</div>
+    </div>
   )
 }
