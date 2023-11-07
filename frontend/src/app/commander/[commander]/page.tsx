@@ -6,7 +6,15 @@ import Link from 'next/link'
 import React from 'react'
 
 export const dynamicParams = false
-type TopCard = Card & { num_decks_with_card: number; num_decks_total: number }
+type TopCard = Card & {
+  quantity: number
+  total_commander_decks: number
+  ci_quantity: number
+  total_commander_decks_of_ci: number
+  synergy: number
+  usage_in_commander: number
+  usage_in_color: number
+}
 type Sections =
   | 'newCards'
   | 'topCards'
@@ -28,7 +36,7 @@ export async function generateStaticParams() {
 export default async function Page({ params }: { params: { commander: string } }) {
   const commanderSlug = params.commander
   const commanderCard = await fetchJsonFromBrawlhub<Card>(`commander/${commanderSlug}`)
-  const topCards = await fetchJsonFromBrawlhub<TopCards>(`top_cards_for_commander/${commanderCard.oracle_id}`)
+  const topCards = await fetchJsonFromBrawlhub<TopCards>(`commander_top_cards/${commanderCard.oracle_id}`)
   const sections = [
     // ['Top Cards', ],
     // (TODO) replace the _ with a -
@@ -59,7 +67,7 @@ export default async function Page({ params }: { params: { commander: string } }
                   {topCards?.[prop]?.length ?? 0})
                 </Link>
               </h3>
-              <CardGrid cards={topCards?.[prop] ?? []}>{CardText(commanderCard)}</CardGrid>
+              <CardGrid cards={topCards?.[prop] ?? []}>{CardText}</CardGrid>
             </div>
           ))}
         </div>
@@ -68,19 +76,13 @@ export default async function Page({ params }: { params: { commander: string } }
   )
 }
 
-function CardText(commanderCard: Card): (card: TopCard) => React.ReactNode {
-  return function Text(card: TopCard) {
-    return (
-      <div className="text-center mt-1">
-        <div>
-          {getPercentage(card.num_decks_with_card, commanderCard?.count ?? 1)}% of {commanderCard.count} decks
-        </div>
-        <div>synergy</div>
+function CardText(card: TopCard) {
+  return (
+    <div className="text-center mt-1">
+      <div>
+        {Math.floor(card.usage_in_commander)}% of {card.total_commander_decks} decks
       </div>
-    )
-  }
-}
-
-function getPercentage(num1: number, num2: number): number {
-  return Math.trunc((num1 / num2) * 100)
+      <div>{Math.floor(card.synergy)}% synergy</div>
+    </div>
+  )
 }
