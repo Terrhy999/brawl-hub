@@ -177,20 +177,58 @@ async fn card_by_slug(
     .expect("couldn't fetch card by slug");
     Json(res)
 }
+#[derive(serde::Serialize)]
+struct CardSlug {
+    oracle_id: String,
+    name: String,
+    lang: String,
+    scryfall_uri: String,
+    layout: String,
+    mana_cost: Option<String>,
+    cmc: f32,
+    type_line: String,
+    oracle_text: Option<String>,
+    colors: Option<Vec<String>>,
+    color_identity: Vec<String>,
+    is_legal: bool,
+    is_legal_commander: bool,
+    rarity: String,
+    image_small: String,
+    image_normal: String,
+    image_large: String,
+    image_art_crop: String,
+    image_border_crop: String,
+    is_alchemy: bool,
+    slug: Option<String>,
+    total_decks: Option<i64>,
+    all_decks: Option<i64>,
+    rank: Option<i64>,
+    total_commander_decks_of_ci: Option<i64>,
+}
 
 async fn commander_by_slug(
     State(AppState { pool }): State<AppState>,
     Path(slug): Path<String>,
-) -> Json<CardCount> {
+) -> Json<CardSlug> {
     let res = sqlx::query_as!(
-        CardCount,
-        "SELECT c.*, COUNT(d.*)
-        FROM card c
-        LEFT JOIN deck d
-        ON c.oracle_id = d.commander
-        WHERE slug = $1
-        GROUP BY c.oracle_id
-        ORDER BY c.name;",
+        CardSlug,
+        "SELECT card.*, total_decks, all_decks, rank, total_commander_decks_of_ci FROM card
+        JOIN (
+            SELECT COUNT(commander) as all_decks FROM deck
+        ) as d1 ON true
+        JOIN (
+            SELECT COUNT(commander) as total_decks, commander FROM deck
+            GROUP BY commander
+        ) AS d ON card.oracle_id = d.commander
+        JOIN (
+            SELECT commander, row_number() OVER (ORDER BY COUNT(commander) DESC) rank FROM deck
+            GROUP BY commander
+        ) AS commander_rank ON commander_rank.commander = card.oracle_id
+        JOIN (
+            SELECT COUNT(*) AS total_commander_decks_of_ci FROM deck
+            WHERE color_identity = (SELECT color_identity FROM card WHERE slug = $1)
+        ) AS total_commander_decks_of_ci ON true
+        WHERE card.slug = $1;",
         slug
     )
     .fetch_one(&pool)
