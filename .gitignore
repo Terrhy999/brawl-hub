@@ -3,3 +3,6 @@ migration-tool/oracle-cards.json
 .env
 pgdata
 server/query
+*/.sqlx
+brawlhub.tar.gz
+Dockerfile

@@ -8,8 +8,6 @@ use sqlx::{postgres::PgPoolOptions, types::Uuid, Pool, Postgres};
 use std::net::SocketAddr;
 use tower_http::cors::CorsLayer;
 
-const DATABASE_URL: &str = "postgres://postgres:postgres@localhost/brawlhub";
-
 // DONE  /commmanders/ => top commanders of all colors
 // DONE /commanders/:colors => top commanders of {colors}
 // /commanders/:colors/:time => top commanders of {colors} in the past {time}
@@ -24,10 +22,11 @@ struct AppState {
 
 #[tokio::main]
 async fn main() {
+    let database_url = std::env::var("DATABASE_URL").expect("set DATABASE_URL env variable");
     let state = AppState {
         pool: PgPoolOptions::new()
             .max_connections(5)
-            .connect(DATABASE_URL)
+            .connect(&database_url)
             .await
             .expect("Couldn't connect to db"),
     };
@@ -61,7 +60,7 @@ async fn main() {
         .layer(CorsLayer::permissive())
         .with_state(state);
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3030));
+    let addr = SocketAddr::from(([0, 0, 0, 0], 3030));
 
     println!("Server listening on {addr}");
     axum::Server::bind(&addr)
@@ -105,12 +104,12 @@ async fn card_slugs(State(AppState { pool }): State<AppState>) -> Json<Vec<Optio
         Response,
         "SELECT DISTINCT slug FROM card WHERE is_legal=true"
     )
-        .fetch_all(&pool)
-        .await
-        .expect("couldn't fetch card slugs")
-        .into_iter()
-        .map(|res| res.slug)
-        .collect();
+    .fetch_all(&pool)
+    .await
+    .expect("couldn't fetch card slugs")
+    .into_iter()
+    .map(|res| res.slug)
+    .collect();
     Json(res)
 }
 
@@ -245,6 +244,9 @@ async fn top_cards_of_color(
     Path(color): Path<String>,
     State(AppState { pool }): State<AppState>,
 ) -> Json<Vec<CommanderTopCard>> {
+    // Right now 'num_decks_total' is the number of decks with this EXACT color_identity, it needs to be the number of decks that INCLUDE this color identity
+    // Eg colors = 'U' 'num_decks_total' is the number of mono-blue decks, not the number of decks with 'U' in the color_identity
+
     let mut not_colors = vec![
         "W".to_string(),
         "U".to_string(),
