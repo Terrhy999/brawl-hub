@@ -8,7 +8,6 @@ export type CardSlug = Card & {
 }
 
 export function CardPage({ card, children }: { card: CardSlug; children: React.ReactNode }) {
-  console.log(card)
   return (
     <>
       <div
