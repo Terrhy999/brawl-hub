@@ -1,26 +1,21 @@
-import { CardPage } from '@/app/_components/card-page'
-import { Card } from '@/app/_components/card-grid'
+import { CardPage, CardSlug } from '@/app/_components/card-page'
 import Link from 'next/link'
 import React from 'react'
 import { fetchJsonFromBrawlhub } from '@/app/_utils/fetch-json'
-import NotFound from '../not-found'
 
 export const dynamicParams = false
 export async function generateStaticParams() {
   // (TODO) find out why this is undefined sometimes
-  return (await fetchJsonFromBrawlhub<string[]>(`card_slugs`)).map((name) => ({ card: name || 'not-found' }))
+  return (await fetchJsonFromBrawlhub<string[]>(`card_slugs`)).map((name) => ({ card: name }))
 }
 
 // async function getCommanderTopCards(oracle_id: string): Promise<TopCards> {
 //   return await fetch(`http://127.0.0.1:3030/top_cards_for_commander/${oracle_id}`).then((res) => res.json())
 // }
 
-export default async function Page({ params = null }: { params: { card: string | 'not-found' } | null }) {
-  const cardSlug = params?.card
-  if (cardSlug == null || cardSlug == 'not-found') {
-    return <NotFound />
-  }
-  const card = await fetchJsonFromBrawlhub<Card>(`card/${cardSlug}`)
+export default async function Page({ params }: { params: { card: string } }) {
+  const cardSlug = params.card
+  const card = await fetchJsonFromBrawlhub<CardSlug>(`card/${cardSlug}`)
   // const topCards = await getCommanderTopCards(commanderCard.oracle_id)
   return (
     <CardPage card={card}>
