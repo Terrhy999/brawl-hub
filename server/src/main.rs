@@ -250,7 +250,7 @@ async fn commander_by_slug(
         ) AS commander_rank ON commander_rank.commander = card.oracle_id
         JOIN (
             SELECT COUNT(*) AS total_commander_decks_of_ci FROM deck
-            WHERE color_identity = (SELECT color_identity FROM card WHERE slug = $1)
+            WHERE color_identity = (SELECT color_identity FROM card WHERE slug = $1 LIMIT 1)
         ) AS total_commander_decks_of_ci ON true
         WHERE card.slug = $1;",
         slug
