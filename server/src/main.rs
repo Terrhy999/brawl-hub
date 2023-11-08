@@ -68,6 +68,30 @@ async fn main() {
         .await
         .expect("Failed to start server");
 }
+#[derive(serde::Serialize)]
+struct Card {
+    oracle_id: String,
+    name: String,
+    lang: String,
+    scryfall_uri: String,
+    layout: String,
+    mana_cost: Option<String>,
+    cmc: f32,
+    type_line: String,
+    oracle_text: Option<String>,
+    colors: Option<Vec<String>>,
+    color_identity: Vec<String>,
+    is_legal: bool,
+    is_legal_commander: bool,
+    rarity: String,
+    image_small: String,
+    image_normal: String,
+    image_large: String,
+    image_art_crop: String,
+    image_border_crop: String,
+    is_alchemy: bool,
+    slug: Option<String>,
+}
 
 #[derive(serde::Serialize)]
 struct CardCount {
@@ -231,9 +255,46 @@ async fn commander_by_slug(
         WHERE card.slug = $1;",
         slug
     )
-    .fetch_one(&pool)
+    .fetch_optional(&pool)
     .await
     .expect("couldn't fetch commander by slug");
+
+    let res = match res {
+        Some(card) => card,
+        None => {
+            let card = sqlx::query_as!(Card, "SELECT * FROM card WHERE slug = $1", slug)
+                .fetch_one(&pool)
+                .await
+                .expect("Couldn't fetch commander by slug");
+            CardSlug {
+                all_decks: Some(0),
+                cmc: card.cmc,
+                color_identity: card.color_identity,
+                colors: card.colors,
+                image_art_crop: card.image_art_crop,
+                image_border_crop: card.image_border_crop,
+                image_large: card.image_large,
+                image_normal: card.image_normal,
+                image_small: card.image_small,
+                is_alchemy: card.is_alchemy,
+                is_legal: card.is_legal,
+                is_legal_commander: card.is_legal_commander,
+                lang: card.lang,
+                layout: card.layout,
+                mana_cost: card.mana_cost,
+                name: card.name,
+                oracle_id: card.oracle_id,
+                oracle_text: card.oracle_text,
+                rank: Some(0),
+                total_commander_decks_of_ci: Some(0),
+                rarity: card.rarity,
+                scryfall_uri: card.scryfall_uri,
+                slug: card.slug,
+                total_decks: Some(0),
+                type_line: card.type_line,
+            }
+        }
+    };
     Json(res)
 }
 
