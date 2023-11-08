@@ -1,5 +1,5 @@
 import CardGrid, { Card } from '@/app/_components/card-grid'
-import { CardPage } from '@/app/_components/card-page'
+import { CardPage, CardSlug } from '@/app/_components/card-page'
 import { fetchJsonFromBrawlhub } from '@/app/_utils/fetch-json'
 import { ClickableChip } from '@/app/commanders/layout'
 import Link from 'next/link'
@@ -35,7 +35,7 @@ export async function generateStaticParams() {
 
 export default async function Page({ params }: { params: { commander: string } }) {
   const commanderSlug = params.commander
-  const commanderCard = await fetchJsonFromBrawlhub<Card>(`commander/${commanderSlug}`)
+  const commanderCard = await fetchJsonFromBrawlhub<CardSlug>(`commander/${commanderSlug}`)
   const topCards = await fetchJsonFromBrawlhub<TopCards>(`commander_top_cards/${commanderCard.oracle_id}`)
   const sections = [
     // ['Top Cards', ],
