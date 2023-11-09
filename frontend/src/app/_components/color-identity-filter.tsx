@@ -37,18 +37,6 @@ export function ColorIdentityFilter({ goTo = 'commanders' }: { goTo?: 'commander
   return (
     <div className="flex justify-between mb-5">
       <div className="flex [&>*]:mr-[20px] [&>button]:opacity-30 [&>*]:duration-[0.3s]">
-        <button className={`${selectedColors.size > 0 ? '!opacity-[unset]' : ''}`} onClick={() => {}}>
-          <Image
-            onClick={() => {
-              setSelectedColors(new Set())
-              router.push(`/${goTo}/`)
-            }}
-            src={'/untap-symbol.svg'}
-            alt={'Colorless Mana'}
-            width={36}
-            height={36}
-          />
-        </button>
         {colors.map(([color, path], i) => {
           return (
             <button
@@ -80,6 +68,18 @@ export function ColorIdentityFilter({ goTo = 'commanders' }: { goTo?: 'commander
               }
             }}
             src={'/colorless-mana.png'}
+            alt={'Colorless Mana'}
+            width={36}
+            height={36}
+          />
+        </button>
+        <button className={`${selectedColors.size > 0 ? '!opacity-[unset]' : ''}`} onClick={() => {}}>
+          <Image
+            onClick={() => {
+              setSelectedColors(new Set())
+              router.push(`/${goTo}/`)
+            }}
+            src={'/untap-symbol.svg'}
             alt={'Colorless Mana'}
             width={36}
             height={36}
