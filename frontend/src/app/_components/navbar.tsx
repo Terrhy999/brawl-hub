@@ -18,7 +18,7 @@ export function NavBar() {
             Commanders
           </Link>
           <Link href={'/cards/'}>Cards</Link>
-          <Link href={''}>Random</Link>
+          {/* <Link href={''}>Random</Link> */}
         </nav>
         <BarsSvg className="md:hidden" onClick={() => setHamburgerMenuHidden(!isHamburgerMenuHidden)}></BarsSvg>
       </div>
@@ -39,18 +39,18 @@ export function NavBar() {
         >
           Cards
         </Link>
-        <Link
+        {/* <Link
           href={'/commanders/'}
           className="[border:1px_solid_rgba(255,255,255,0.1)] px-[10px] py-[1px] rounded-[4px] bg-[color:rgba(255,255,255,.1)]"
         >
           Sets
-        </Link>
-        <Link
+        </Link> */}
+        {/* <Link
           href={'/commanders/'}
           className="[border:1px_solid_rgba(255,255,255,0.1)] px-[10px] py-[1px] rounded-[4px] bg-[color:rgba(255,255,255,.1)]"
         >
           Random
-        </Link>
+        </Link> */}
       </nav>
     </header>
   )
@@ -128,6 +128,10 @@ export function SearchBar() {
   )
 }
 
+async function searchCard(cardName: string) {
+  return await fetchJsonFromPublic<SearchResults[]>(`search/${cardName}`)
+}
+
 function MagnifyingGlass({ className }: { className: string }) {
   return (
     <svg
@@ -145,8 +149,4 @@ function MagnifyingGlass({ className }: { className: string }) {
       />
     </svg>
   )
-}
-
-async function searchCard(cardName: string) {
-  return await fetchJsonFromPublic<SearchResults[]>(`search/${cardName}`)
 }
