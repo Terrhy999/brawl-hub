@@ -111,7 +111,13 @@ export function SearchBar() {
           {searchResults?.map((result, i) => {
             return (
               <Link href={`${result.slug}`} key={i} className="flex items-center">
-                <Image className="mr-2 w-auto h-auto" src={result.image} width={50} height={50} alt={result.cardName} />
+                <Image
+                  className="mr-2 h-[40px] w-[50px]"
+                  src={result.image}
+                  width={50}
+                  height={50}
+                  alt={result.cardName}
+                />
                 <div>{result.cardName}</div>
               </Link>
             )
