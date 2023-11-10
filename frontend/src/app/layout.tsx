@@ -14,9 +14,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <StrictMode>
       <html lang="en">
-        <body className={`${inter.className} bg-bg-color text-white`}>
-          <main className="mx-auto">{children}</main>
-        </body>
+        <body className={`${inter.className} bg-bg-color text-white`}>{children}</body>
       </html>
     </StrictMode>
   )
