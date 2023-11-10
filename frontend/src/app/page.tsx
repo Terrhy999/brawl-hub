@@ -34,7 +34,7 @@ export default function Home() {
 }
 
 type SearchResults = { cardName: string; image: string; slug: string }
-export function SearchBar() {
+function SearchBar() {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<SearchResults[]>()
   useEffect(() => {
