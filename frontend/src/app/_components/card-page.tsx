@@ -15,7 +15,7 @@ export function CardPage({ card, children }: { card: CardSlug; children: React.R
         className={`absolute blur-md bg-cover w-full h-[442px] bg-[image:var(--image-url)]`}
       ></div>
       <div className="text-center z-40 relative">
-        <h2 className="text-4xl">{card.name}</h2>
+        {/* <h2 className="text-4xl">{card.name}</h2> */}
         <Card className="mx-auto my-2" card={card} size="large" />
         {/* <div>
           {Math.floor((card.total_decks / card.total_commander_decks_of_ci) * 100)}% decks with this Color Identity
