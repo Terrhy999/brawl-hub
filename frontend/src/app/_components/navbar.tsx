@@ -9,8 +9,12 @@ export function NavBar() {
   return (
     <header className="md:h-[--header-height] bg-header-color sticky top-0 z-50">
       <div className="max-w-[85%] mx-auto flex py-4 whitespace-nowrap items-center">
-        <span className="hidden md:block">BrawlHub</span>
-        <span className="md:hidden">BH</span>
+        <Link href={'/'} className="hidden md:block">
+          BrawlHub
+        </Link>
+        <Link href={'/'} className="md:hidden">
+          BH
+        </Link>
         <SearchBar />
         <div className="[border-right:1px_solid_rgba(255,255,255,0.4)] mr-[6px] h-[20px] hidden md:block" />
         <nav className="[&>*]:px-[7px] hidden md:block">
