@@ -89,7 +89,7 @@ export function SearchBar() {
         />
         {/* (TODO) Figure out how to get this div to be the COMPUTED width of parent */}
         {/* <div className="overflow-auto max-h-[300px] absolute bg-bg-color box-content rounded translate-y-[16px] w-[53%] [border:1px_solid_rgba(0,0,0,0.4)]"> */}
-        <div className="overflow-auto max-h-[300px] absolute bg-bg-color rounded translate-y-[16px] ">
+        <div className="overflow-auto max-h-[300px] absolute bg-bg-color rounded translate-y-[16px]">
           {searchResults?.map((result, i) => {
             return (
               <Link href={`${result.slug}`} key={i} className="flex items-center">
