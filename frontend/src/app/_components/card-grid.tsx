@@ -2,27 +2,41 @@ import Image from 'next/image'
 import Link from 'next/link'
 
 export type Card = {
-  oracle_id: string // Assuming Uuid is represented as a string
-  name: string
-  lang: string
+  oracle_id: string
+  name_full: string
+  name_front: string
+  name_back: string | null
+  slug: string
   scryfall_uri: string
   layout: string
-  mana_cost: string | null
+  rarity: string
+  lang: string
+  mana_cost_combined: string | null
+  mana_cost_front: string | null
+  mana_cost_back: string | null
   cmc: number
-  type_line: string
+  type_line_full: string
+  type_line_front: string
+  type_line_back: string | null
   oracle_text: string | null
+  oracle_text_back: string | null
   colors: (string | null)[]
+  colors_back: (string | null)[]
   color_identity: string[]
   is_legal: boolean
-  is_commander: boolean
-  rarity: string
+  is_legal_commander: boolean
+  is_rebalanced: boolean
   image_small: string
   image_normal: string
   image_large: string
   image_art_crop: string
   image_border_crop: string
+  image_small_back: string | null
+  image_normal_back: string | null
+  image_large_back: string | null
+  image_art_crop_back: string | null
+  image_border_crop_back: string | null
   count?: number | null
-  slug: string
 }
 
 export default async function CardGrid({
@@ -76,7 +90,7 @@ export function Card({
     <Image
       className={`rounded-[5%] ${className}`}
       src={size === 'normal' ? card.image_normal : card.image_large}
-      alt={card.name}
+      alt={card.name_full}
       width={width}
       height={height}
     />
