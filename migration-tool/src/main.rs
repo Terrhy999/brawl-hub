@@ -1,10 +1,12 @@
+#![allow(unused)]
 // use postgres::{Client, NoTls};
 use serde::{Deserialize, Serialize};
 use slug::slugify;
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
 // use sqlx::types::Uuid;
+use chrono::prelude::*;
 use futures::future::join_all;
-use std::fs;
+use std::{collections::HashMap, fmt::Debug, fs};
 use uuid::Uuid;
 
 const DATABASE_URL: &str = "postgres://postgres:postgres@localhost/brawlhub";
@@ -17,12 +19,151 @@ async fn main() {
         .await
         .expect("couldn't connect to db");
 
-    if false {
-        migrate_scryfall_cards(&pool).await;
-    }
     let decks = get_aetherhub_decks(0, 50).await;
     for deck in decks {
         migrate_aetherhub_decklists(&pool, &deck).await
+    }
+    // migrate_scryfall_alchemy_cards(&pool).await;
+}
+
+async fn migrate_scryfall_alchemy_cards(pool: &Pool<Postgres>) {
+    let data = fs::read_to_string("default-cards.json").expect("unable to read JSON");
+    let scryfall_cards: Vec<ScryfallCard> =
+        serde_json::from_str(&data).expect("unable to parse JSON");
+
+    let scryfall_cards: Vec<ScryfallCard> = scryfall_cards
+        .into_iter()
+        .filter(|card| card.games().contains(&String::from("arena")))
+        .collect();
+
+    let mut unique_scryfall_cards: HashMap<String, ScryfallCard> = HashMap::new();
+
+    scryfall_cards.into_iter().for_each(|card| {
+        let (oracle_id, released_at) = (card.oracle_id(), card.released_at());
+
+        let new_released_at = released_at;
+
+        unique_scryfall_cards
+            .entry(oracle_id.clone())
+            .and_modify(|existing_card| {
+                if existing_card.released_at() < new_released_at {
+                    *existing_card = card.clone();
+                }
+            })
+            .or_insert(card);
+    });
+
+    // Get a list of all the alchemy card names, with the 'A-' prefix stripped, and remove cards with that name from the HashMap
+    // println!("Cards: {}", unique_scryfall_cards.len());
+
+    let alchemy_card_names: Vec<String> = unique_scryfall_cards
+        .iter()
+        .filter_map(|(_, card)| {
+            card.is_rebalanced()
+                .then(|| strip_alchemy_prefix(&card.name()))
+        })
+        .collect();
+    unique_scryfall_cards.retain(|_, card| !alchemy_card_names.contains(&card.name().to_string()));
+
+    // unique_scryfall_cards
+    //     .into_iter()
+    //     .map(|(oracle_id, mut card)| {
+    //         if card.is_rebalanced() {
+    //             card.name = card.name.strip_prefix("A-")
+    //         }
+    //     });
+
+    //need to remove the A- from these alchemy cards because i'm searching by non-alchemy names
+
+    let cards: Vec<Card> = unique_scryfall_cards
+        .into_iter()
+        .map(|(oracle_id, scryfall_card)| Card::from(scryfall_card))
+        .collect();
+
+    for card in cards {
+        println!(
+            "Insert {}, {} into brawlhub.card",
+            card.name_full, card.oracle_id
+        );
+        sqlx::query_as!(
+            Card,
+            "INSERT INTO card(
+            oracle_id,
+            name_full,
+            name_front,
+            name_back,
+            slug,
+            scryfall_uri,
+            layout,
+            rarity,
+            lang,
+            mana_cost_combined,
+            mana_cost_front,
+            mana_cost_back,
+            cmc,
+            type_line_full,
+            type_line_front,
+            type_line_back,
+            oracle_text,
+            oracle_text_back,
+            colors,
+            colors_back,
+            color_identity,
+            is_legal,
+            is_legal_commander,
+            is_rebalanced,
+            image_small,
+            image_normal,
+            image_large,
+            image_art_crop,
+            image_border_crop,
+            image_small_back,
+            image_normal_back,
+            image_large_back,
+            image_art_crop_back,
+            image_border_crop_back
+        )
+        VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34)
+        ",
+        Uuid::parse_str(&card.oracle_id).expect("Parse uuid from oracle_id string"),
+        card.name_full,
+        card.name_front,
+        card.name_back,
+        card.slug,
+        card.scryfall_uri,
+        card.layout,
+        card.rarity,
+        card.lang,
+        card.mana_cost_combined,
+        card.mana_cost_front,
+        card.mana_cost_back,
+        card.cmc,
+        card.type_line_full,
+        card.type_line_front,
+        card.type_line_back,
+        card.oracle_text,
+        card.oracle_text_back,
+        card.colors.as_deref(),
+        card.colors_back.as_deref(),
+        &card.color_identity,
+        card.is_legal,
+        card.is_legal_commander,
+        card.is_rebalanced,
+        card.image_small,
+        card.image_normal,
+        card.image_large,
+        card.image_art_crop,
+        card.image_border_crop,
+        card.image_small_back,
+        card.image_normal_back,
+        card.image_large_back,
+        card.image_art_crop_back,
+        card.image_border_crop_back,
+        )
+        .execute(pool)
+        .await
+        .expect("couldn't insert");
     }
 }
 
@@ -92,12 +233,20 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
             } else if card.name == "Deck" {
                 is_commander = false;
                 is_companion = false;
-            } else if card.name.contains("///") {
-                let name = card.name.split(" ///").collect::<Vec<&str>>()[0].to_string();
+            } else if card.name.contains(" /// ") {
+                let (front, back): (&str, &str) = card.name.split_once(" /// ").unwrap();
+                let (front, back) = (
+                    front.strip_prefix("A-").unwrap_or(front),
+                    back.strip_prefix("A-").unwrap_or(back),
+                );
+                let (name, a_name) = (
+                    format!("{} // {}", front, back),
+                    format!("A-{} // A-{}", front, back),
+                );
                 result.push(CardInDeck {
                     quantity: card.quantity,
                     name: name.clone(),
-                    a_name: format!("A-{}", name.clone()),
+                    a_name: a_name.clone(),
                     is_commander,
                     is_companion,
                 })
@@ -110,7 +259,7 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
                 result.push(CardInDeck {
                     quantity: card.quantity,
                     name: name.clone(),
-                    a_name: format!("A-{}", name.clone()),
+                    a_name: format!("A-{name}"),
                     is_commander,
                     is_companion,
                 });
@@ -122,79 +271,96 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
     let aetherhub_decklist = convert_aetherhub_decklist(aetherhub_decklist);
 
     // Always search for alchemy version first, if not, then search for non-alchemy version
-    // Flip cards do not have the '// Back Half'
+    // DFC cards do not have the '// Back Half'
     // Eg. "Sheoldred // The True Scriptures" -> "Sheoldred"
     // Aftermath cards DO have both halfs, seperated by '///'
     // Eg. "Cut /// Ribbons"
     // No alchemy-aftermath cards exist yet, so I don't know what they would look like.
 
-    // Card Name = 'Lightning Bolt'
-    // 1. Search LIKE 'A-Lightning Bolt //%'
-    // 2. Search LIKE 'Lightning Bold //%'
-    // 3. Search = 'A-Lightning Bolt'
-    // 4. Search = 'Lightning Bolt'
-
-    // ALMOST WORKS, flip alchemy cards not returning alchemy version
-    // PROBLEM: "Alrund, God of the Cosmos" and "A-Alrund, God of the Cosmos" -> "Alrund, God of the Cosmos // Hakka, Whispering Raven"
-
     let card_ids = aetherhub_decklist.iter().map(|card| async {
         #[derive(Debug)]
         #[allow(dead_code)]
         struct OracleId {
-            oracle_id: Option<Uuid>,
-            name: Option<String>,
-            color_identity: Option<Vec<String>>,
+            oracle_id: Uuid,
+            name_full: String,
+            color_identity: Vec<String>,
         }
 
-        let alchemy_flip = format!("{} //%", card.a_name);
-        let flip = format!("{} //%", card.name);
+        // println!("Card: {}", card.name);
 
-        sqlx::query_as!(
+        let result = sqlx::query_as!(
             OracleId,
-            "SELECT name, oracle_id, color_identity FROM (
-            SELECT oracle_id, name, color_identity, 1 AS priority FROM card WHERE unaccent(name) LIKE unaccent($1)
-            UNION SELECT oracle_id, name, color_identity, 2 AS priority FROM card WHERE unaccent(name) LIKE unaccent($2)
-            UNION SELECT oracle_id, name, color_identity, 3 AS priority FROM card WHERE unaccent(name) = unaccent($3)
-            UNION SELECT oracle_id, name, color_identity, 4 AS priority FROM card WHERE unaccent(name) = unaccent($4)
-            ) as result
-            ORDER BY priority",
-            alchemy_flip, // Search for alchemy flip cards with "A-name //%"
-            flip,         // Search for regular flip cards with "name //%"
-            card.a_name,  // Search for alchemy card with "A-name"
-            card.name     // Search for regular card with "name"
+            "SELECT name_full, oracle_id, color_identity 
+            FROM card
+            WHERE unaccent(name_full) = unaccent($1)
+            OR (unaccent(name_front) = unaccent($1) AND layout IN ('transform','modal_dfc', 'adventure')
+        )",
+            card.name
         )
-        .fetch_optional(pool)
-        .await
-        .unwrap_or_else(|_| panic!("Error when querying db for {}", card.name))
-        .unwrap_or_else(|| panic!("Couldn't find oracle_id of card {}", card.name))
+        .fetch_one(pool)
+        .await;
+
+        if let Ok(res) = result {
+            Some(CombinedCardData {
+                oracle_id: res.oracle_id,
+                name: res.name_full,
+                is_commander: card.is_commander,
+                is_companion: card.is_companion,
+                quantity: card.quantity,
+                color_identity: res.color_identity,
+            })
+        } else {
+            eprintln!("Error for card {}", card.name);
+            None
+        }
+    
+        // The result is wrapped in an Option here, filtering out None (skipping the entry)
+
+        // sqlx::query_as!(
+        //     OracleId,
+        //     "SELECT name, oracle_id, color_identity FROM (
+        //     SELECT oracle_id, name, color_identity, 1 AS priority FROM card WHERE unaccent(name) LIKE unaccent($1)
+        //     UNION SELECT oracle_id, name, color_identity, 2 AS priority FROM card WHERE unaccent(name) LIKE unaccent($2)
+        //     UNION SELECT oracle_id, name, color_identity, 3 AS priority FROM card WHERE unaccent(name) = unaccent($3)
+        //     UNION SELECT oracle_id, name, color_identity, 4 AS priority FROM card WHERE unaccent(name) = unaccent($4)
+        //     ) as result
+        //     ORDER BY priority",
+        //     alchemy_flip, // Search for alchemy flip cards with "A-name //%"
+        //     flip,         // Search for regular flip cards with "name //%"
+        //     card.a_name,  // Search for alchemy card with "A-name"
+        //     card.name     // Search for regular card with "name"
+        // )
+        // .fetch_optional(pool)
+        // .await
+        // .unwrap_or_else(|_| panic!("Error when querying db for {}", card.name))
+        // .unwrap_or_else(|| panic!("Couldn't find oracle_id of card {}", card.name))
     });
 
     let card_ids = join_all(card_ids).await;
+    let combined_card_data: Vec<CombinedCardData> = card_ids.into_iter().filter_map(|card| card).collect();
 
     #[derive(Debug)]
     struct CombinedCardData {
-        oracle_id: Option<Uuid>,
+        oracle_id: Uuid,
         name: String,
-        a_name: String,
         is_commander: bool,
         is_companion: bool,
         quantity: Option<i32>,
         color_identity: Vec<String>,
     }
 
-    let combined_card_data: Vec<CombinedCardData> = aetherhub_decklist
-        .into_iter()
-        .zip(card_ids)
-        .map(|(decklist_card, card_id)| CombinedCardData {
-            oracle_id: card_id.oracle_id,
-            name: decklist_card.name,
-            a_name: decklist_card.a_name,
-            is_commander: decklist_card.is_commander,
-            is_companion: decklist_card.is_companion,
-            quantity: decklist_card.quantity,
-            color_identity: card_id.color_identity.expect("color_identity missing"),
-        })
-        .collect();
+    // let combined_card_data: Vec<CombinedCardData> = aetherhub_decklist
+    //     .into_iter()
+    //     .zip(card_ids)
+    //     .map(|(decklist_card, card_id)| CombinedCardData {
+    //         oracle_id: card_id.oracle_id,
+    //         name: decklist_card.name,
+    //         is_commander: decklist_card.is_commander,
+    //         is_companion: decklist_card.is_companion,
+    //         quantity: decklist_card.quantity,
+    //         color_identity: card_id.color_identity,
+    //     })
+    //     .collect();
 
     struct DeckID {
         id: i32,
@@ -205,17 +371,11 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
         .find(|card| card.is_commander)
         .unwrap();
 
-    let companion = combined_card_data
-        .iter()
-        .find(|card| card.is_companion)
-        .map(|card| {
-            card.oracle_id
-                .expect("couldn't find oracle_id of card where 'is_companion' = true")
-        });
+    let companion = combined_card_data.iter().find(|card| card.is_companion);
 
     sqlx::query_as!(
         AetherHubDeck,
-        "INSERT INTO deck (id, deck_id, url, username, date_created, date_updated, commander, companion, color_identity)
+        "INSERT INTO deck (id, deck_id, url, username, date_created, date_updated, commander, color_identity, companion)
         VALUES (DEFAULT, $1, $2, $3, $4, $5, $6, $7, $8)
         ON CONFLICT (deck_id) DO NOTHING",
         // Uuid::parse_str(&deck.id).expect("uuid parsed wrong"),
@@ -224,9 +384,10 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
         deck.username,
         deck.created,
         deck.updated,
-        commander_info.oracle_id.expect("no oracle_id for commander"),
-        companion,
+        commander_info.oracle_id,
+        // companion.unwrap_or(Null),
         &commander_info.color_identity,
+        companion.map(|c| c.oracle_id),
     )
     .execute(pool)
     .await
@@ -245,12 +406,10 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
 
     for card in combined_card_data {
         // let deck_id = Uuid::parse_str(deck.id.as_str()).expect("uuid parsed wrong");
-        println!(
-            "Insert {}, {} into {}",
-            card.name,
-            card.oracle_id.unwrap(),
-            deck_id.id
-        );
+        // println!(
+        //     "Insert {}, {} into {}",
+        //     card.name, card.oracle_id, deck_id.id
+        // );
         sqlx::query!(
             "INSERT INTO decklist (oracle_id, deck_id, quantity, is_companion, is_commander)
             VALUES ($1, $2, $3, $4, $5)
@@ -265,70 +424,6 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
         .execute(pool)
         .await
         .expect("insert card failed");
-    }
-}
-
-async fn migrate_scryfall_cards(pool: &Pool<Postgres>) {
-    let data = fs::read_to_string("oracle-cards.json").expect("unable to read JSON");
-    let scryfall_cards: Vec<ScryfallCard> =
-        serde_json::from_str(&data).expect("unable to parse JSON");
-
-    const UNWANTED_LAYOUTS: [&str; 10] = [
-        "planar",
-        "scheme",
-        "vanguard",
-        "token",
-        "double_faced_token",
-        "emblem",
-        "augment",
-        "host",
-        "art_series",
-        "reversible_card",
-    ];
-
-    let cards = scryfall_cards
-        .into_iter()
-        .filter(|card| match card {
-            ScryfallCard::Normal(Normal { layout, .. })
-            | ScryfallCard::TwoFace(TwoFace { layout, .. }) => {
-                !UNWANTED_LAYOUTS.contains(&layout.as_str())
-            }
-        })
-        .map(Card::from)
-        .collect::<Vec<Card>>();
-
-    for card in cards {
-        println!(
-            "Insert {}, {} into brawlhub.card",
-            card.name, card.oracle_id
-        );
-        sqlx::query_as!(Card, "INSERT INTO card(oracle_id, name, lang, scryfall_uri, layout, mana_cost, cmc, type_line, oracle_text, colors, color_identity, is_legal, is_legal_commander, rarity, image_small, image_normal, image_large, image_art_crop, image_border_crop, slug, is_alchemy)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)",
-            Uuid::parse_str(&card.oracle_id).expect("uuid parsed wrong"),
-            card.name,
-            card.lang,
-            card.scryfall_uri,
-            card.layout,
-            card.mana_cost,
-            card.cmc,
-            card.type_line,
-            card.oracle_text,
-            card.colors.as_deref(),
-            &card.color_identity,
-            card.is_legal,
-            card.is_legal_commander,
-            card.rarity,
-            card.image_small,
-            card.image_normal,
-            card.image_large,
-            card.image_art_crop,
-            card.image_border_crop,
-            card.slug,
-            card.is_alchemy,
-        )
-        .execute(pool)
-        .await
-        .expect("couldn't insert");
     }
 }
 
@@ -501,168 +596,386 @@ struct AetherHubDeck {
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Card {
-    // id: String,
     oracle_id: String,
-    name: String,
-    lang: String,
+    name_full: String,
+    name_front: String,
+    name_back: Option<String>,
+    slug: String,
     scryfall_uri: String,
     layout: String,
-    mana_cost: Option<String>,
+    rarity: String,
+    lang: String,
+    mana_cost_combined: Option<String>,
+    mana_cost_front: Option<String>,
+    mana_cost_back: Option<String>,
     cmc: f32,
-    type_line: String,
+    type_line_full: String,
+    type_line_front: String,
+    type_line_back: Option<String>,
     oracle_text: Option<String>,
+    oracle_text_back: Option<String>,
     colors: Option<Vec<String>>,
+    colors_back: Option<Vec<String>>,
     color_identity: Vec<String>,
     is_legal: bool,
     is_legal_commander: bool,
-    rarity: String,
+    is_rebalanced: bool,
     image_small: String,
     image_normal: String,
     image_large: String,
     image_art_crop: String,
     image_border_crop: String,
-    is_alchemy: bool,
-    slug: Option<String>,
+    image_small_back: Option<String>,
+    image_normal_back: Option<String>,
+    image_large_back: Option<String>,
+    image_art_crop_back: Option<String>,
+    image_border_crop_back: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(untagged)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(tag = "layout", rename_all = "snake_case")]
 enum ScryfallCard {
     Normal(Normal),
-    TwoFace(TwoFace),
+    Split(Split),
+    Flip(Flip),
+    Transform(Transform),
+    #[serde(rename = "modal_dfc")]
+    ModalDFC(ModalDFC),
+    Meld(Meld),
+    Leveler(Normal),
+    Class(Normal),
+    Saga(Normal),
+    Adventure(Adventure),
+    Mutate(Normal),
+    Prototype(Normal),
+    Planar(Normal),
+    Scheme(Normal),
+    Vanguard(Normal),
+    Token(Normal),
+    DoubleFacedToken(DoubleFacedToken),
+    Emblem(Normal),
+    Augment(Normal),
+    Host(Normal),
+    ArtSeries(ArtSeries),
+    ReversibleCard(ReversibleCard),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct Normal {
-    oracle_id: String,
-    name: String,
     lang: String,
+    released_at: NaiveDate,
+    arena_id: Option<i32>,
     scryfall_uri: String,
-    layout: String,
-    image_uris: CardImages,
-    mana_cost: Option<String>,
+    oracle_id: String,
     cmc: f32,
-    type_line: String,
+    name: String,
+    mana_cost: Option<String>,
     oracle_text: Option<String>,
     colors: Option<Vec<String>>,
     color_identity: Vec<String>,
-    legalities: Legalaties,
     rarity: String,
     games: Vec<String>,
+    image_uris: CardImages,
+    type_line: String,
+    legalities: Legalities,
+    set_type: String,
+    promo_types: Option<Vec<String>>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-struct TwoFace {
-    oracle_id: String,
-    name: String,
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct Split {
     lang: String,
+    released_at: NaiveDate,
+    arena_id: Option<i32>,
     scryfall_uri: String,
-    layout: String,
-    // mana_cost: Option<String>,
+    oracle_id: String,
     cmc: f32,
+    name: String,
+    mana_cost: Option<String>,
+    // oracle_text: Option<String>,
+    colors: Option<Vec<String>>,
+    color_identity: Vec<String>,
+    rarity: String,
+    games: Vec<String>,
+    image_uris: CardImages,
     type_line: String,
+    legalities: Legalities,
+    set_type: String,
+    card_faces: Vec<SplitFace>,
+    promo_types: Option<Vec<String>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct Flip {
+    lang: String,
+    released_at: NaiveDate,
+    arena_id: Option<i32>,
+    scryfall_uri: String,
+    oracle_id: String,
+    cmc: f32,
+    name: String,
+    mana_cost: Option<String>,
+    // oracle_text: Option<String>,
+    colors: Option<Vec<String>>,
+    color_identity: Vec<String>,
+    rarity: String,
+    games: Vec<String>,
+    image_uris: CardImages,
+    type_line: String,
+    legalities: Legalities,
+    set_type: String,
+    card_faces: Vec<FlipFace>,
+    promo_types: Option<Vec<String>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct Transform {
+    lang: String,
+    released_at: NaiveDate,
+    arena_id: Option<i32>,
+    scryfall_uri: String,
+    oracle_id: String,
+    cmc: f32,
+    name: String,
+    // mana_cost: Option<String>,
     // oracle_text: Option<String>,
     // colors: Option<Vec<String>>,
     color_identity: Vec<String>,
-    legalities: Legalaties,
     rarity: String,
     games: Vec<String>,
-    card_faces: Vec<CardFace>,
+    // image_uris: CardImages,
+    type_line: String,
+    legalities: Legalities,
+    set_type: String,
+    card_faces: Vec<TransformFace>,
+    promo_types: Option<Vec<String>>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-struct CardFace {
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct ModalDFC {
+    lang: String,
+    released_at: NaiveDate,
+    arena_id: Option<i32>,
+    scryfall_uri: String,
+    oracle_id: String,
+    cmc: f32,
+    name: String,
+    // mana_cost: Option<String>,
+    // oracle_text: Option<String>,
+    // colors: Option<Vec<String>>,
+    color_identity: Vec<String>,
+    rarity: String,
+    games: Vec<String>,
+    // image_uris: CardImages,
+    type_line: String,
+    legalities: Legalities,
+    set_type: String,
+    card_faces: Vec<ModalDFCFace>,
+    promo_types: Option<Vec<String>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct Meld {
+    lang: String,
+    released_at: NaiveDate,
+    arena_id: Option<i32>,
+    scryfall_uri: String,
+    oracle_id: String,
+    cmc: f32,
+    name: String,
+    mana_cost: Option<String>,
+    oracle_text: Option<String>,
+    colors: Option<Vec<String>>,
+    color_identity: Vec<String>,
+    rarity: String,
+    games: Vec<String>,
+    image_uris: CardImages,
+    type_line: String,
+    legalities: Legalities,
+    set_type: String,
+    all_parts: Vec<MeldPart>,
+    id: String,
+    promo_types: Option<Vec<String>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct Adventure {
+    lang: String,
+    released_at: NaiveDate,
+    arena_id: Option<i32>,
+    scryfall_uri: String,
+    oracle_id: String,
+    cmc: f32,
+    name: String,
+    mana_cost: Option<String>,
+    // oracle_text: Option<String>,
+    colors: Option<Vec<String>>,
+    color_identity: Vec<String>,
+    rarity: String,
+    games: Vec<String>,
+    image_uris: CardImages,
+    type_line: String,
+    legalities: Legalities,
+    set_type: String,
+    card_faces: Vec<AdventureFace>,
+    promo_types: Option<Vec<String>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct DoubleFacedToken {
+    lang: String,
+    released_at: NaiveDate,
+    arena_id: Option<i32>,
+    scryfall_uri: String,
+    oracle_id: String,
+    cmc: f32,
+    name: String,
+    // mana_cost: Option<String>,
+    // oracle_text: Option<String>,
+    // colors: Option<Vec<String>>,
+    color_identity: Vec<String>,
+    rarity: String,
+    games: Vec<String>,
+    // image_uris: CardImages,
+    type_line: String,
+    legalities: Legalities,
+    set_type: String,
+    card_faces: Vec<DoubleFacedTokenFace>,
+    promo_types: Option<Vec<String>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct ArtSeries {
+    lang: String,
+    released_at: NaiveDate,
+    arena_id: Option<i32>,
+    scryfall_uri: String,
+    oracle_id: String,
+    cmc: f32,
+    name: String,
+    // mana_cost: Option<String>,
+    // oracle_text: Option<String>,
+    // colors: Option<Vec<String>>,
+    color_identity: Vec<String>,
+    rarity: String,
+    games: Vec<String>,
+    // image_uris: CardImages,
+    type_line: String,
+    legalities: Legalities,
+    set_type: String,
+    card_faces: Vec<ArtSeriesFace>,
+    promo_types: Option<Vec<String>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct ReversibleCard {
+    lang: String,
+    released_at: NaiveDate,
+    arena_id: Option<i32>,
+    scryfall_uri: String,
+    // oracle_id: String,
+    // cmc: f32,
+    name: String,
+    // mana_cost: Option<String>,
+    // oracle_text: Option<String>,
+    // colors: Option<Vec<String>>,
+    color_identity: Vec<String>,
+    rarity: String,
+    games: Vec<String>,
+    // image_uris: CardImages,
+    // type_line: String,
+    legalities: Legalities,
+    set_type: String,
+    card_faces: Vec<ReversibleCardFace>,
+    promo_types: Option<Vec<String>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct SplitFace {
+    name: String,
     mana_cost: String,
-    type_line: Option<String>,
+    type_line: String,
+    oracle_text: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct FlipFace {
+    name: String,
+    mana_cost: String,
+    type_line: String,
+    oracle_text: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct TransformFace {
+    name: String,
+    mana_cost: String,
+    type_line: String,
     oracle_text: String,
     colors: Option<Vec<String>>,
     image_uris: CardImages,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct ModalDFCFace {
     name: String,
+    mana_cost: String,
+    type_line: String,
+    oracle_text: String,
+    colors: Option<Vec<String>>,
+    image_uris: CardImages,
 }
 
-impl From<ScryfallCard> for Card {
-    fn from(card: ScryfallCard) -> Self {
-        let is_legal_commander = match &card {
-            ScryfallCard::Normal(Normal { type_line, .. })
-            | ScryfallCard::TwoFace(TwoFace { type_line, .. }) => {
-                type_line.to_lowercase().contains("legendary")
-                    && type_line.to_lowercase().contains("creature")
-                    || type_line.to_lowercase().contains("planeswalker")
-            }
-        };
-
-        // card.slug is generated from card.name
-        // card.slug should not have an 'A-' in front, even if the card is alchemy
-        // card.slug should only have the front-half of a card's name
-
-        let slug_sanitized = match &card {
-            ScryfallCard::Normal(Normal { name, .. })
-            | ScryfallCard::TwoFace(TwoFace { name, .. }) => {
-                let slug = name.split(" //").collect::<Vec<&str>>()[0];
-
-                if slug.starts_with("A-") {
-                    slugify(slug.strip_prefix("A-").unwrap())
-                } else {
-                    slugify(slug)
-                }
-            }
-        };
-
-        match card {
-            ScryfallCard::Normal(c) => Self {
-                // id: c.id,
-                oracle_id: c.oracle_id,
-                name: c.name.clone(),
-                mana_cost: c.mana_cost,
-                lang: c.lang,
-                scryfall_uri: c.scryfall_uri,
-                layout: c.layout,
-                // image_uris: c.image_uris,
-                cmc: c.cmc,
-                type_line: c.type_line.clone(),
-                oracle_text: c.oracle_text,
-                colors: c.colors,
-                color_identity: c.color_identity,
-                rarity: c.rarity,
-                is_legal: matches!(c.legalities.historicbrawl.as_str(), "legal"),
-                is_legal_commander,
-                image_small: c.image_uris.small,
-                image_normal: c.image_uris.normal,
-                image_large: c.image_uris.large,
-                image_art_crop: c.image_uris.art_crop,
-                image_border_crop: c.image_uris.border_crop,
-                is_alchemy: c.name.clone().starts_with("A-"),
-                slug: Some(slug_sanitized),
-            },
-            ScryfallCard::TwoFace(c) => Self {
-                oracle_id: c.oracle_id,
-                name: c.name.clone(),
-                mana_cost: Some(c.card_faces[0].mana_cost.clone()),
-                lang: c.lang,
-                scryfall_uri: c.scryfall_uri,
-                layout: c.layout,
-                // image_uris: c.image_uris,
-                cmc: c.cmc,
-                type_line: c.type_line.clone(),
-                oracle_text: Some(c.card_faces[0].oracle_text.clone()),
-                colors: c.card_faces[0].colors.clone(),
-                color_identity: c.color_identity,
-                rarity: c.rarity,
-                is_legal: matches!(c.legalities.historicbrawl.as_str(), "legal"),
-                is_legal_commander,
-                image_small: c.card_faces[0].image_uris.small.clone(),
-                image_normal: c.card_faces[0].image_uris.normal.clone(),
-                image_large: c.card_faces[0].image_uris.large.clone(),
-                image_art_crop: c.card_faces[0].image_uris.art_crop.clone(),
-                image_border_crop: c.card_faces[0].image_uris.border_crop.clone(),
-                is_alchemy: c.name.clone().starts_with("A-"),
-                slug: Some(slug_sanitized),
-            },
-        }
-    }
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct MeldPart {
+    name: String,
+    type_line: String,
+    component: String, // "meld_part" or "meld_result"
+    uri: String,
+    id: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct AdventureFace {
+    name: String,
+    mana_cost: String,
+    type_line: String,
+    oracle_text: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct DoubleFacedTokenFace {
+    name: String,
+    mana_cost: String,
+    oracle_text: String,
+    type_line: Option<String>,
+    colors: Option<Vec<String>>,
+    image_uris: CardImages,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct ArtSeriesFace {
+    name: String,
+    mana_cost: String,
+    type_line: String,
+    oracle_text: String,
+    colors: Option<Vec<String>>,
+    image_uris: Option<CardImages>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct ReversibleCardFace {
+    name: String,
+    oracle_id: String,
+    mana_cost: String,
+    cmc: f32,
+    type_line: String,
+    oracle_text: String,
+    colors: Option<Vec<String>>,
+    image_uris: CardImages,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct CardImages {
     small: String,
     normal: String,
@@ -671,8 +984,1154 @@ struct CardImages {
     art_crop: String,
     border_crop: String,
 }
-#[derive(Serialize, Deserialize, Debug)]
-struct Legalaties {
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct Legalities {
     brawl: String,
     historicbrawl: String,
+}
+
+trait ScryfallCardProperties {
+    fn name(&self) -> String;
+    fn oracle_id(&self) -> String;
+    fn released_at(&self) -> &NaiveDate;
+    fn games(&self) -> &Vec<String>;
+    // fn set_type(&self) -> String;
+    // fn type_line(&self) -> String;
+    fn promo_types(&self) -> &Option<Vec<String>>;
+    // fn is_legal_commander(&self) -> bool;
+    // fn strip_alchemy_prefix(&self) -> String;
+    fn is_rebalanced(&self) -> bool;
+    fn layout(&self) -> String;
+    // fn is_legal(&self) -> bool;
+    // fn slug(&self) -> String;
+    fn to_card(&self) -> Card;
+}
+
+// fn split_name(name: &str) -> (String, String) {
+//     let (front, back): (&str, &str) = name.split_once(" // ").expect("Split name at ' // '");
+//     (front.to_string(), back.to_string())
+// }
+
+fn is_legal_commander(type_line: &str) -> bool {
+    let lowercase_type_line = type_line.to_lowercase();
+    lowercase_type_line.contains("legendary") && lowercase_type_line.contains("creature")
+        || lowercase_type_line.contains("planeswalker")
+}
+
+fn slug(name: &str) -> String {
+    let name = name.strip_prefix("A-").unwrap_or(name);
+    slugify(name.split(" // ").next().unwrap_or(name))
+}
+
+fn strip_alchemy_prefix(name: &str) -> String {
+    if name.starts_with("A-") {
+        if name.contains("//") {
+            name.split(" // ")
+                .collect::<Vec<&str>>()
+                .iter()
+                .map(|c| {
+                    c.strip_prefix("A-")
+                        .expect("Strip 'A-' prefix from split card")
+                })
+                .collect::<Vec<&str>>()
+                .join(" // ")
+        } else {
+            name.strip_prefix("A-")
+                .expect("Strip A- prefix")
+                .to_string()
+        }
+    } else {
+        name.to_string()
+    }
+}
+
+impl ScryfallCardProperties for ScryfallCard {
+    fn name(&self) -> String {
+        match self {
+            ScryfallCard::Normal(normal) => normal.name(),
+            ScryfallCard::Split(split) => split.name(),
+            ScryfallCard::Flip(flip) => flip.name(),
+            ScryfallCard::Transform(transform) => transform.name(),
+            ScryfallCard::ModalDFC(modal_dfc) => modal_dfc.name(),
+            ScryfallCard::Meld(meld) => meld.name(),
+            ScryfallCard::Leveler(normal) => normal.name(),
+            ScryfallCard::Class(normal) => normal.name(),
+            ScryfallCard::Saga(normal) => normal.name(),
+            ScryfallCard::Adventure(adventure) => adventure.name(),
+            ScryfallCard::Mutate(normal) => normal.name(),
+            ScryfallCard::Prototype(normal) => normal.name(),
+            ScryfallCard::Planar(normal) => normal.name(),
+            ScryfallCard::Scheme(normal) => normal.name(),
+            ScryfallCard::Vanguard(normal) => normal.name(),
+            ScryfallCard::Token(normal) => normal.name(),
+            ScryfallCard::DoubleFacedToken(double_faced_token) => double_faced_token.name(),
+            ScryfallCard::Emblem(normal) => normal.name(),
+            ScryfallCard::Augment(normal) => normal.name(),
+            ScryfallCard::Host(normal) => normal.name(),
+            ScryfallCard::ArtSeries(art_series) => art_series.name(),
+            ScryfallCard::ReversibleCard(reversible_card) => reversible_card.name(),
+        }
+    }
+
+    fn oracle_id(&self) -> String {
+        match self {
+            ScryfallCard::Normal(normal) => normal.oracle_id(),
+            ScryfallCard::Split(split) => split.oracle_id(),
+            ScryfallCard::Flip(flip) => flip.oracle_id(),
+            ScryfallCard::Transform(transform) => transform.oracle_id(),
+            ScryfallCard::ModalDFC(modal_dfc) => modal_dfc.oracle_id(),
+            ScryfallCard::Meld(meld) => meld.oracle_id(),
+            ScryfallCard::Leveler(normal) => normal.oracle_id(),
+            ScryfallCard::Class(normal) => normal.oracle_id(),
+            ScryfallCard::Saga(normal) => normal.oracle_id(),
+            ScryfallCard::Adventure(adventure) => adventure.oracle_id(),
+            ScryfallCard::Mutate(normal) => normal.oracle_id(),
+            ScryfallCard::Prototype(normal) => normal.oracle_id(),
+            ScryfallCard::Planar(normal) => normal.oracle_id(),
+            ScryfallCard::Scheme(normal) => normal.oracle_id(),
+            ScryfallCard::Vanguard(normal) => normal.oracle_id(),
+            ScryfallCard::Token(normal) => normal.oracle_id(),
+            ScryfallCard::DoubleFacedToken(double_faced_token) => double_faced_token.oracle_id(),
+            ScryfallCard::Emblem(normal) => normal.oracle_id(),
+            ScryfallCard::Augment(normal) => normal.oracle_id(),
+            ScryfallCard::Host(normal) => normal.oracle_id(),
+            ScryfallCard::ArtSeries(art_series) => art_series.oracle_id(),
+            ScryfallCard::ReversibleCard(reversible_card) => reversible_card.oracle_id(),
+        }
+    }
+
+    fn released_at(&self) -> &NaiveDate {
+        match self {
+            ScryfallCard::Normal(normal) => normal.released_at(),
+            ScryfallCard::Split(split) => split.released_at(),
+            ScryfallCard::Flip(flip) => flip.released_at(),
+            ScryfallCard::Transform(transform) => transform.released_at(),
+            ScryfallCard::ModalDFC(modal_dfc) => modal_dfc.released_at(),
+            ScryfallCard::Meld(meld) => meld.released_at(),
+            ScryfallCard::Leveler(normal) => normal.released_at(),
+            ScryfallCard::Class(normal) => normal.released_at(),
+            ScryfallCard::Saga(normal) => normal.released_at(),
+            ScryfallCard::Adventure(adventure) => adventure.released_at(),
+            ScryfallCard::Mutate(normal) => normal.released_at(),
+            ScryfallCard::Prototype(normal) => normal.released_at(),
+            ScryfallCard::Planar(normal) => normal.released_at(),
+            ScryfallCard::Scheme(normal) => normal.released_at(),
+            ScryfallCard::Vanguard(normal) => normal.released_at(),
+            ScryfallCard::Token(normal) => normal.released_at(),
+            ScryfallCard::DoubleFacedToken(double_faced_token) => double_faced_token.released_at(),
+            ScryfallCard::Emblem(normal) => normal.released_at(),
+            ScryfallCard::Augment(normal) => normal.released_at(),
+            ScryfallCard::Host(normal) => normal.released_at(),
+            ScryfallCard::ArtSeries(art_series) => art_series.released_at(),
+            ScryfallCard::ReversibleCard(reversible_card) => reversible_card.released_at(),
+        }
+    }
+
+    fn games(&self) -> &Vec<String> {
+        match self {
+            ScryfallCard::Normal(normal) => normal.games(),
+            ScryfallCard::Split(split) => split.games(),
+            ScryfallCard::Flip(flip) => flip.games(),
+            ScryfallCard::Transform(transform) => transform.games(),
+            ScryfallCard::ModalDFC(modal_dfc) => modal_dfc.games(),
+            ScryfallCard::Meld(meld) => meld.games(),
+            ScryfallCard::Leveler(normal) => normal.games(),
+            ScryfallCard::Class(normal) => normal.games(),
+            ScryfallCard::Saga(normal) => normal.games(),
+            ScryfallCard::Adventure(adventure) => adventure.games(),
+            ScryfallCard::Mutate(normal) => normal.games(),
+            ScryfallCard::Prototype(normal) => normal.games(),
+            ScryfallCard::Planar(normal) => normal.games(),
+            ScryfallCard::Scheme(normal) => normal.games(),
+            ScryfallCard::Vanguard(normal) => normal.games(),
+            ScryfallCard::Token(normal) => normal.games(),
+            ScryfallCard::DoubleFacedToken(double_faced_token) => double_faced_token.games(),
+            ScryfallCard::Emblem(normal) => normal.games(),
+            ScryfallCard::Augment(normal) => normal.games(),
+            ScryfallCard::Host(normal) => normal.games(),
+            ScryfallCard::ArtSeries(art_series) => art_series.games(),
+            ScryfallCard::ReversibleCard(reversible_card) => reversible_card.games(),
+        }
+    }
+
+    fn promo_types(&self) -> &Option<Vec<String>> {
+        match self {
+            ScryfallCard::Normal(normal) => normal.promo_types(),
+            ScryfallCard::Split(split) => split.promo_types(),
+            ScryfallCard::Flip(flip) => flip.promo_types(),
+            ScryfallCard::Transform(transform) => transform.promo_types(),
+            ScryfallCard::ModalDFC(modal_dfc) => modal_dfc.promo_types(),
+            ScryfallCard::Meld(meld) => meld.promo_types(),
+            ScryfallCard::Leveler(normal) => normal.promo_types(),
+            ScryfallCard::Class(normal) => normal.promo_types(),
+            ScryfallCard::Saga(normal) => normal.promo_types(),
+            ScryfallCard::Adventure(adventure) => adventure.promo_types(),
+            ScryfallCard::Mutate(normal) => normal.promo_types(),
+            ScryfallCard::Prototype(normal) => normal.promo_types(),
+            ScryfallCard::Planar(normal) => normal.promo_types(),
+            ScryfallCard::Scheme(normal) => normal.promo_types(),
+            ScryfallCard::Vanguard(normal) => normal.promo_types(),
+            ScryfallCard::Token(normal) => normal.promo_types(),
+            ScryfallCard::DoubleFacedToken(double_faced_token) => double_faced_token.promo_types(),
+            ScryfallCard::Emblem(normal) => normal.promo_types(),
+            ScryfallCard::Augment(normal) => normal.promo_types(),
+            ScryfallCard::Host(normal) => normal.promo_types(),
+            ScryfallCard::ArtSeries(art_series) => art_series.promo_types(),
+            ScryfallCard::ReversibleCard(reversible_card) => reversible_card.promo_types(),
+        }
+    }
+
+    fn layout(&self) -> String {
+        match self {
+            ScryfallCard::Normal(normal) => normal.layout(),
+            ScryfallCard::Split(split) => split.layout(),
+            ScryfallCard::Flip(flip) => flip.layout(),
+            ScryfallCard::Transform(transform) => transform.layout(),
+            ScryfallCard::ModalDFC(modal_dfc) => modal_dfc.layout(),
+            ScryfallCard::Meld(meld) => meld.layout(),
+            ScryfallCard::Leveler(normal) => normal.layout(),
+            ScryfallCard::Class(normal) => normal.layout(),
+            ScryfallCard::Saga(normal) => normal.layout(),
+            ScryfallCard::Adventure(adventure) => adventure.layout(),
+            ScryfallCard::Mutate(normal) => normal.layout(),
+            ScryfallCard::Prototype(normal) => normal.layout(),
+            ScryfallCard::Planar(normal) => normal.layout(),
+            ScryfallCard::Scheme(normal) => normal.layout(),
+            ScryfallCard::Vanguard(normal) => normal.layout(),
+            ScryfallCard::Token(normal) => normal.layout(),
+            ScryfallCard::DoubleFacedToken(double_faced_token) => double_faced_token.layout(),
+            ScryfallCard::Emblem(normal) => normal.layout(),
+            ScryfallCard::Augment(normal) => normal.layout(),
+            ScryfallCard::Host(normal) => normal.layout(),
+            ScryfallCard::ArtSeries(art_series) => art_series.layout(),
+            ScryfallCard::ReversibleCard(reversible_card) => reversible_card.layout(),
+        }
+    }
+
+    fn is_rebalanced(&self) -> bool {
+        match self {
+            ScryfallCard::Normal(normal) => normal.is_rebalanced(),
+            ScryfallCard::Split(split) => split.is_rebalanced(),
+            ScryfallCard::Flip(flip) => flip.is_rebalanced(),
+            ScryfallCard::Transform(transform) => transform.is_rebalanced(),
+            ScryfallCard::ModalDFC(modal_dfc) => modal_dfc.is_rebalanced(),
+            ScryfallCard::Meld(meld) => meld.is_rebalanced(),
+            ScryfallCard::Leveler(normal) => normal.is_rebalanced(),
+            ScryfallCard::Class(normal) => normal.is_rebalanced(),
+            ScryfallCard::Saga(normal) => normal.is_rebalanced(),
+            ScryfallCard::Adventure(adventure) => adventure.is_rebalanced(),
+            ScryfallCard::Mutate(normal) => normal.is_rebalanced(),
+            ScryfallCard::Prototype(normal) => normal.is_rebalanced(),
+            ScryfallCard::Planar(normal) => normal.is_rebalanced(),
+            ScryfallCard::Scheme(normal) => normal.is_rebalanced(),
+            ScryfallCard::Vanguard(normal) => normal.is_rebalanced(),
+            ScryfallCard::Token(normal) => normal.is_rebalanced(),
+            ScryfallCard::DoubleFacedToken(double_faced_token) => {
+                double_faced_token.is_rebalanced()
+            }
+            ScryfallCard::Emblem(normal) => normal.is_rebalanced(),
+            ScryfallCard::Augment(normal) => normal.is_rebalanced(),
+            ScryfallCard::Host(normal) => normal.is_rebalanced(),
+            ScryfallCard::ArtSeries(art_series) => art_series.is_rebalanced(),
+            ScryfallCard::ReversibleCard(reversible_card) => reversible_card.is_rebalanced(),
+        }
+    }
+
+    // fn strip_alchemy_prefix(&self) -> String {
+    //     match self {
+    //         ScryfallCard::Normal(normal) => normal.strip_alchemy_prefix(),
+    //         ScryfallCard::Split(split) => split.strip_alchemy_prefix(),
+    //         ScryfallCard::Flip(flip) => flip.strip_alchemy_prefix(),
+    //         ScryfallCard::Transform(transform) => transform.strip_alchemy_prefix(),
+    //         ScryfallCard::ModalDFC(modal_dfc) => modal_dfc.strip_alchemy_prefix(),
+    //         ScryfallCard::Meld(meld) => meld.strip_alchemy_prefix(),
+    //         ScryfallCard::Leveler(normal) => normal.strip_alchemy_prefix(),
+    //         ScryfallCard::Class(normal) => normal.strip_alchemy_prefix(),
+    //         ScryfallCard::Saga(normal) => normal.strip_alchemy_prefix(),
+    //         ScryfallCard::Adventure(adventure) => adventure.strip_alchemy_prefix(),
+    //         ScryfallCard::Mutate(normal) => normal.strip_alchemy_prefix(),
+    //         ScryfallCard::Prototype(normal) => normal.strip_alchemy_prefix(),
+    //         ScryfallCard::Planar(normal) => normal.strip_alchemy_prefix(),
+    //         ScryfallCard::Scheme(normal) => normal.strip_alchemy_prefix(),
+    //         ScryfallCard::Vanguard(normal) => normal.strip_alchemy_prefix(),
+    //         ScryfallCard::Token(normal) => normal.strip_alchemy_prefix(),
+    //         ScryfallCard::DoubleFacedToken(double_faced_token) => {
+    //             double_faced_token.strip_alchemy_prefix()
+    //         }
+    //         ScryfallCard::Emblem(normal) => normal.strip_alchemy_prefix(),
+    //         ScryfallCard::Augment(normal) => normal.strip_alchemy_prefix(),
+    //         ScryfallCard::Host(normal) => normal.strip_alchemy_prefix(),
+    //         ScryfallCard::ArtSeries(art_series) => art_series.strip_alchemy_prefix(),
+    //         ScryfallCard::ReversibleCard(reversible_card) => reversible_card.strip_alchemy_prefix(),
+    //     }
+    // }
+
+    fn to_card(&self) -> Card {
+        match self {
+            ScryfallCard::Normal(card) => card.to_card(),
+            ScryfallCard::Split(card) => card.to_card(),
+            ScryfallCard::Flip(card) => card.to_card(),
+            ScryfallCard::Transform(card) => card.to_card(),
+            ScryfallCard::ModalDFC(card) => card.to_card(),
+            ScryfallCard::Meld(card) => card.to_card(),
+            ScryfallCard::Leveler(card) => card.to_card(),
+            ScryfallCard::Class(card) => card.to_card(),
+            ScryfallCard::Saga(card) => card.to_card(),
+            ScryfallCard::Adventure(card) => card.to_card(),
+            ScryfallCard::Mutate(card) => card.to_card(),
+            ScryfallCard::Prototype(card) => card.to_card(),
+            ScryfallCard::Planar(card) => card.to_card(),
+            ScryfallCard::Scheme(card) => card.to_card(),
+            ScryfallCard::Vanguard(card) => card.to_card(),
+            ScryfallCard::Token(card) => card.to_card(),
+            ScryfallCard::DoubleFacedToken(card) => card.to_card(),
+            ScryfallCard::Emblem(card) => card.to_card(),
+            ScryfallCard::Augment(card) => card.to_card(),
+            ScryfallCard::Host(card) => card.to_card(),
+            ScryfallCard::ArtSeries(card) => card.to_card(),
+            ScryfallCard::ReversibleCard(card) => card.to_card(),
+        }
+    }
+}
+
+impl ScryfallCardProperties for Normal {
+    fn to_card(&self) -> Card {
+        Card {
+            oracle_id: self.oracle_id(),
+            slug: slug(&self.name()),
+            name_full: strip_alchemy_prefix(&self.name()),
+            name_front: strip_alchemy_prefix(&self.name()),
+            name_back: None,
+            lang: self.lang.clone(),
+            scryfall_uri: self.scryfall_uri.clone(),
+            layout: self.layout(),
+            mana_cost_combined: None,
+            mana_cost_front: self.mana_cost.clone(),
+            mana_cost_back: None,
+            cmc: self.cmc,
+            type_line_full: self.type_line.clone(),
+            type_line_front: self.type_line.clone(),
+            type_line_back: None,
+            oracle_text: self.oracle_text.clone(),
+            oracle_text_back: None,
+            colors: self.colors.clone(),
+            colors_back: None,
+            color_identity: self.color_identity.clone(),
+            is_legal: self.legalities.historicbrawl == "legal",
+            is_legal_commander: is_legal_commander(&self.type_line),
+            is_rebalanced: self.is_rebalanced(),
+            rarity: self.rarity.clone(),
+            image_small: self.image_uris.small.clone(),
+            image_normal: self.image_uris.normal.clone(),
+            image_large: self.image_uris.large.clone(),
+            image_art_crop: self.image_uris.art_crop.clone(),
+            image_border_crop: self.image_uris.border_crop.clone(),
+            image_small_back: None,
+            image_normal_back: None,
+            image_large_back: None,
+            image_art_crop_back: None,
+            image_border_crop_back: None,
+        }
+    }
+
+    fn layout(&self) -> String {
+        "normal".to_string()
+    }
+
+    // fn strip_alchemy_prefix(&self) -> String {
+    //     if self.name.starts_with("A-") {
+    //         if self.name.contains("//") {
+    //             self.name
+    //                 .split(" // ")
+    //                 .collect::<Vec<&str>>()
+    //                 .iter()
+    //                 .map(|c| {
+    //                     c.strip_prefix("A-")
+    //                         .expect("Strip 'A-' prefix from split card")
+    //                 })
+    //                 .collect::<Vec<&str>>()
+    //                 .join(" // ")
+    //         } else {
+    //             self.name
+    //                 .strip_prefix("A-")
+    //                 .expect("Strip A- prefix")
+    //                 .to_string()
+    //         }
+    //     } else {
+    //         self.name.to_string()
+    //     }
+    // }
+
+    fn is_rebalanced(&self) -> bool {
+        if self.promo_types.is_some() {
+            self.promo_types
+                .as_ref()
+                .unwrap()
+                .contains(&"rebalanced".to_string())
+        } else {
+            false
+        }
+    }
+
+    fn games(&self) -> &Vec<String> {
+        &self.games
+    }
+
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn oracle_id(&self) -> String {
+        self.oracle_id.clone()
+    }
+
+    fn promo_types(&self) -> &Option<Vec<String>> {
+        &self.promo_types
+    }
+
+    fn released_at(&self) -> &NaiveDate {
+        &self.released_at
+    }
+}
+impl ScryfallCardProperties for Split {
+    fn to_card(&self) -> Card {
+        Card {
+            oracle_id: self.oracle_id(),
+            slug: slug(&self.name()),
+            name_full: strip_alchemy_prefix(&self.name()),
+            name_front: strip_alchemy_prefix(&self.card_faces[0].name),
+            name_back: Some(strip_alchemy_prefix(&self.card_faces[1].name)),
+            lang: self.lang.clone(),
+            scryfall_uri: self.scryfall_uri.clone(),
+            layout: self.layout(),
+            mana_cost_combined: self.mana_cost.clone(),
+            mana_cost_front: Some(self.card_faces[0].mana_cost.clone()),
+            mana_cost_back: Some(self.card_faces[1].mana_cost.clone()),
+            cmc: self.cmc,
+            type_line_full: self.type_line.clone(),
+            type_line_front: self.card_faces[0].type_line.clone(),
+            type_line_back: Some(self.card_faces[1].type_line.clone()),
+            oracle_text: Some(self.card_faces[0].oracle_text.clone()),
+            oracle_text_back: Some(self.card_faces[1].oracle_text.clone()),
+            colors: self.colors.clone(),
+            colors_back: None,
+            color_identity: self.color_identity.clone(),
+            is_legal: self.legalities.historicbrawl == "legal",
+            is_legal_commander: is_legal_commander(&self.type_line),
+            is_rebalanced: self.is_rebalanced(),
+            rarity: self.rarity.clone(),
+            image_small: self.image_uris.small.clone(),
+            image_normal: self.image_uris.normal.clone(),
+            image_large: self.image_uris.large.clone(),
+            image_art_crop: self.image_uris.art_crop.clone(),
+            image_border_crop: self.image_uris.border_crop.clone(),
+            image_small_back: None,
+            image_normal_back: None,
+            image_large_back: None,
+            image_art_crop_back: None,
+            image_border_crop_back: None,
+        }
+    }
+
+    fn layout(&self) -> String {
+        "split".to_string()
+    }
+
+    fn is_rebalanced(&self) -> bool {
+        if self.promo_types.is_some() {
+            self.promo_types
+                .as_ref()
+                .unwrap()
+                .contains(&"rebalanced".to_string())
+        } else {
+            false
+        }
+    }
+
+    fn games(&self) -> &Vec<String> {
+        &self.games
+    }
+
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn oracle_id(&self) -> String {
+        self.oracle_id.clone()
+    }
+
+    fn promo_types(&self) -> &Option<Vec<String>> {
+        &self.promo_types
+    }
+
+    fn released_at(&self) -> &NaiveDate {
+        &self.released_at
+    }
+}
+impl ScryfallCardProperties for Flip {
+    fn oracle_id(&self) -> String {
+        self.oracle_id.clone()
+    }
+
+    fn to_card(&self) -> Card {
+        Card {
+            oracle_id: self.oracle_id(),
+            slug: slug(&self.name()),
+            name_full: strip_alchemy_prefix(&self.name()),
+            name_front: strip_alchemy_prefix(&self.card_faces[0].name),
+            name_back: Some(strip_alchemy_prefix(&self.card_faces[1].name)),
+            lang: self.lang.clone(),
+            scryfall_uri: self.scryfall_uri.clone(),
+            layout: self.layout(),
+            mana_cost_combined: None,
+            mana_cost_front: self.mana_cost.clone(),
+            mana_cost_back: None,
+            cmc: self.cmc,
+            type_line_full: self.type_line.clone(),
+            type_line_front: self.card_faces[0].type_line.clone(),
+            type_line_back: Some(self.card_faces[1].type_line.clone()),
+            oracle_text: Some(self.card_faces[0].oracle_text.clone()),
+            oracle_text_back: Some(self.card_faces[1].oracle_text.clone()),
+            colors: self.colors.clone(),
+            colors_back: self.colors.clone(),
+            color_identity: self.color_identity.clone(),
+            is_legal: self.legalities.historicbrawl == "legal",
+            is_legal_commander: is_legal_commander(&self.type_line),
+            is_rebalanced: self.is_rebalanced(),
+            rarity: self.rarity.clone(),
+            image_small: self.image_uris.small.clone(),
+            image_normal: self.image_uris.normal.clone(),
+            image_large: self.image_uris.large.clone(),
+            image_art_crop: self.image_uris.art_crop.clone(),
+            image_border_crop: self.image_uris.border_crop.clone(),
+            image_small_back: None,
+            image_normal_back: None,
+            image_large_back: None,
+            image_art_crop_back: None,
+            image_border_crop_back: None,
+        }
+    }
+
+    fn layout(&self) -> String {
+        "flip".to_string()
+    }
+
+    fn is_rebalanced(&self) -> bool {
+        if self.promo_types.is_some() {
+            self.promo_types
+                .as_ref()
+                .unwrap()
+                .contains(&"rebalanced".to_string())
+        } else {
+            false
+        }
+    }
+
+    fn games(&self) -> &Vec<String> {
+        &self.games
+    }
+
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn promo_types(&self) -> &Option<Vec<String>> {
+        &self.promo_types
+    }
+
+    fn released_at(&self) -> &NaiveDate {
+        &self.released_at
+    }
+}
+impl ScryfallCardProperties for Transform {
+    fn oracle_id(&self) -> String {
+        self.oracle_id.clone()
+    }
+
+    fn to_card(&self) -> Card {
+        Card {
+            oracle_id: self.oracle_id(),
+            slug: slug(&self.name()),
+            name_full: strip_alchemy_prefix(&self.name()),
+            name_front: strip_alchemy_prefix(&self.card_faces[0].name),
+            name_back: Some(strip_alchemy_prefix(&self.card_faces[1].name)),
+            lang: self.lang.clone(),
+            scryfall_uri: self.scryfall_uri.clone(),
+            layout: self.layout(),
+            mana_cost_combined: None,
+            mana_cost_front: Some(self.card_faces[0].mana_cost.clone()),
+            mana_cost_back: None,
+            cmc: self.cmc,
+            type_line_full: self.type_line.clone(),
+            type_line_front: self.card_faces[0].type_line.clone(),
+            type_line_back: Some(self.card_faces[1].type_line.clone()),
+            oracle_text: Some(self.card_faces[0].oracle_text.clone()),
+            oracle_text_back: Some(self.card_faces[1].oracle_text.clone()),
+            colors: self.card_faces[0].colors.clone(),
+            colors_back: self.card_faces[1].colors.clone(),
+            color_identity: self.color_identity.clone(),
+            is_legal: self.legalities.historicbrawl == "legal",
+            is_legal_commander: is_legal_commander(&self.type_line),
+            is_rebalanced: self.is_rebalanced(),
+            rarity: self.rarity.clone(),
+            image_small: self.card_faces[0].image_uris.small.clone(),
+            image_normal: self.card_faces[0].image_uris.normal.clone(),
+            image_large: self.card_faces[0].image_uris.large.clone(),
+            image_art_crop: self.card_faces[0].image_uris.art_crop.clone(),
+            image_border_crop: self.card_faces[0].image_uris.border_crop.clone(),
+            image_small_back: Some(self.card_faces[1].image_uris.small.clone()),
+            image_normal_back: Some(self.card_faces[1].image_uris.normal.clone()),
+            image_large_back: Some(self.card_faces[1].image_uris.large.clone()),
+            image_art_crop_back: Some(self.card_faces[1].image_uris.border_crop.clone()),
+            image_border_crop_back: Some(self.card_faces[1].image_uris.art_crop.clone()),
+        }
+    }
+
+    fn layout(&self) -> String {
+        "transform".to_string()
+    }
+
+    fn is_rebalanced(&self) -> bool {
+        if self.promo_types.is_some() {
+            self.promo_types
+                .as_ref()
+                .unwrap()
+                .contains(&"rebalanced".to_string())
+        } else {
+            false
+        }
+    }
+
+    fn games(&self) -> &Vec<String> {
+        &self.games
+    }
+
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn promo_types(&self) -> &Option<Vec<String>> {
+        &self.promo_types
+    }
+
+    fn released_at(&self) -> &NaiveDate {
+        &self.released_at
+    }
+}
+impl ScryfallCardProperties for ModalDFC {
+    fn oracle_id(&self) -> String {
+        self.oracle_id.clone()
+    }
+
+    fn to_card(&self) -> Card {
+        Card {
+            oracle_id: self.oracle_id(),
+            slug: slug(&self.name()),
+            name_full: strip_alchemy_prefix(&self.name()),
+            name_front: strip_alchemy_prefix(&self.card_faces[0].name),
+            name_back: Some(strip_alchemy_prefix(&self.card_faces[1].name)),
+            lang: self.lang.clone(),
+            scryfall_uri: self.scryfall_uri.clone(),
+            layout: self.layout(),
+            mana_cost_combined: None,
+            mana_cost_front: Some(self.card_faces[0].mana_cost.clone()),
+            mana_cost_back: Some(self.card_faces[1].mana_cost.clone()),
+            cmc: self.cmc,
+            type_line_full: self.type_line.clone(),
+            type_line_front: self.card_faces[0].type_line.clone(),
+            type_line_back: Some(self.card_faces[1].type_line.clone()),
+            oracle_text: Some(self.card_faces[0].oracle_text.clone()),
+            oracle_text_back: Some(self.card_faces[1].oracle_text.clone()),
+            colors: self.card_faces[0].colors.clone(),
+            colors_back: self.card_faces[1].colors.clone(),
+            color_identity: self.color_identity.clone(),
+            is_legal: self.legalities.historicbrawl == "legal",
+            is_legal_commander: is_legal_commander(&self.type_line),
+            is_rebalanced: self.is_rebalanced(),
+            rarity: self.rarity.clone(),
+            image_small: self.card_faces[0].image_uris.small.clone(),
+            image_normal: self.card_faces[0].image_uris.normal.clone(),
+            image_large: self.card_faces[0].image_uris.large.clone(),
+            image_art_crop: self.card_faces[0].image_uris.art_crop.clone(),
+            image_border_crop: self.card_faces[0].image_uris.border_crop.clone(),
+            image_small_back: Some(self.card_faces[1].image_uris.small.clone()),
+            image_normal_back: Some(self.card_faces[1].image_uris.normal.clone()),
+            image_large_back: Some(self.card_faces[1].image_uris.large.clone()),
+            image_art_crop_back: Some(self.card_faces[1].image_uris.border_crop.clone()),
+            image_border_crop_back: Some(self.card_faces[1].image_uris.art_crop.clone()),
+        }
+    }
+
+    fn layout(&self) -> String {
+        "modal_dfc".to_string()
+    }
+
+    fn is_rebalanced(&self) -> bool {
+        if self.promo_types.is_some() {
+            self.promo_types
+                .as_ref()
+                .unwrap()
+                .contains(&"rebalanced".to_string())
+        } else {
+            false
+        }
+    }
+
+    fn games(&self) -> &Vec<String> {
+        &self.games
+    }
+
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn promo_types(&self) -> &Option<Vec<String>> {
+        &self.promo_types
+    }
+
+    fn released_at(&self) -> &NaiveDate {
+        &self.released_at
+    }
+}
+impl ScryfallCardProperties for Meld {
+    fn layout(&self) -> String {
+        "meld".to_string()
+    }
+
+    fn is_rebalanced(&self) -> bool {
+        if self.promo_types.is_some() {
+            self.promo_types
+                .as_ref()
+                .unwrap()
+                .contains(&"rebalanced".to_string())
+        } else {
+            false
+        }
+    }
+
+    fn games(&self) -> &Vec<String> {
+        &self.games
+    }
+
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn promo_types(&self) -> &Option<Vec<String>> {
+        &self.promo_types
+    }
+
+    fn released_at(&self) -> &NaiveDate {
+        &self.released_at
+    }
+
+    fn oracle_id(&self) -> String {
+        self.oracle_id.clone()
+    }
+
+    fn to_card(&self) -> Card {
+        Card {
+            oracle_id: self.oracle_id(),
+            slug: slug(&self.name()),
+            name_full: strip_alchemy_prefix(&self.name()),
+            name_front: strip_alchemy_prefix(&self.all_parts[0].name),
+            name_back: None,
+            lang: self.lang.clone(),
+            scryfall_uri: self.scryfall_uri.clone(),
+            layout: self.layout(),
+            mana_cost_combined: None,
+            mana_cost_front: self.mana_cost.clone(),
+            mana_cost_back: None,
+            cmc: self.cmc,
+            type_line_full: self.type_line.clone(),
+            type_line_front: self.type_line.clone(),
+            type_line_back: None,
+            oracle_text: self.oracle_text.clone(),
+            oracle_text_back: None,
+            colors: self.colors.clone(),
+            colors_back: None,
+            color_identity: self.color_identity.clone(),
+            is_legal: self.legalities.historicbrawl == "legal",
+            is_legal_commander: is_legal_commander(&self.type_line)
+                && self
+                    .all_parts
+                    .iter()
+                    .find(|part| part.name == self.name())
+                    .expect("Find Meld part associated to this card")
+                    .component
+                    != "meld_result".to_string(),
+            is_rebalanced: self.is_rebalanced(),
+            rarity: self.rarity.clone(),
+            image_small: self.image_uris.small.clone(),
+            image_normal: self.image_uris.normal.clone(),
+            image_large: self.image_uris.large.clone(),
+            image_art_crop: self.image_uris.art_crop.clone(),
+            image_border_crop: self.image_uris.border_crop.clone(),
+            image_small_back: None,
+            image_normal_back: None,
+            image_large_back: None,
+            image_art_crop_back: None,
+            image_border_crop_back: None,
+        }
+    }
+}
+impl ScryfallCardProperties for Adventure {
+    fn layout(&self) -> String {
+        "adventure".to_string()
+    }
+
+    fn is_rebalanced(&self) -> bool {
+        if self.promo_types.is_some() {
+            self.promo_types
+                .as_ref()
+                .unwrap()
+                .contains(&"rebalanced".to_string())
+        } else {
+            false
+        }
+    }
+
+    fn games(&self) -> &Vec<String> {
+        &self.games
+    }
+
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn promo_types(&self) -> &Option<Vec<String>> {
+        &self.promo_types
+    }
+
+    fn released_at(&self) -> &NaiveDate {
+        &self.released_at
+    }
+
+    fn oracle_id(&self) -> String {
+        self.oracle_id.clone()
+    }
+
+    fn to_card(&self) -> Card {
+        Card {
+            oracle_id: self.oracle_id(),
+            slug: slug(&self.name()),
+            name_full: strip_alchemy_prefix(&self.name()),
+            name_front: strip_alchemy_prefix(&self.card_faces[0].name),
+            name_back: Some(strip_alchemy_prefix(&self.card_faces[1].name)),
+            lang: self.lang.clone(),
+            scryfall_uri: self.scryfall_uri.clone(),
+            layout: self.layout(),
+            mana_cost_combined: self.mana_cost.clone(),
+            mana_cost_front: Some(self.card_faces[0].mana_cost.clone()),
+            mana_cost_back: Some(self.card_faces[1].mana_cost.clone()),
+            cmc: self.cmc,
+            type_line_full: self.type_line.clone(),
+            type_line_front: self.card_faces[0].type_line.clone(),
+            type_line_back: Some(self.card_faces[1].type_line.clone()),
+            oracle_text: Some(self.card_faces[0].oracle_text.clone()),
+            oracle_text_back: Some(self.card_faces[1].oracle_text.clone()),
+            colors: self.colors.clone(),
+            colors_back: None,
+            color_identity: self.color_identity.clone(),
+            is_legal: self.legalities.historicbrawl == "legal",
+            is_legal_commander: is_legal_commander(&self.card_faces[1].type_line),
+            is_rebalanced: self.is_rebalanced(),
+            rarity: self.rarity.clone(),
+            image_small: self.image_uris.small.clone(),
+            image_normal: self.image_uris.normal.clone(),
+            image_large: self.image_uris.large.clone(),
+            image_art_crop: self.image_uris.art_crop.clone(),
+            image_border_crop: self.image_uris.border_crop.clone(),
+            image_small_back: None,
+            image_normal_back: None,
+            image_large_back: None,
+            image_art_crop_back: None,
+            image_border_crop_back: None,
+        }
+    }
+}
+impl ScryfallCardProperties for ArtSeries {
+    fn layout(&self) -> String {
+        "art_series".to_string()
+    }
+
+    fn is_rebalanced(&self) -> bool {
+        if self.promo_types.is_some() {
+            self.promo_types
+                .as_ref()
+                .unwrap()
+                .contains(&"rebalanced".to_string())
+        } else {
+            false
+        }
+    }
+
+    fn games(&self) -> &Vec<String> {
+        &self.games
+    }
+
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn promo_types(&self) -> &Option<Vec<String>> {
+        &self.promo_types
+    }
+
+    fn released_at(&self) -> &NaiveDate {
+        &self.released_at
+    }
+
+    fn oracle_id(&self) -> String {
+        self.oracle_id.clone()
+    }
+
+    fn to_card(&self) -> Card {
+        Card {
+            oracle_id: self.oracle_id(),
+            slug: slug(&self.name()),
+            name_full: strip_alchemy_prefix(&self.name()),
+            name_front: strip_alchemy_prefix(&self.card_faces[0].name),
+            name_back: Some(strip_alchemy_prefix(&self.card_faces[1].name)),
+            lang: self.lang.clone(),
+            scryfall_uri: self.scryfall_uri.clone(),
+            layout: self.layout(),
+            mana_cost_combined: None,
+            mana_cost_front: None,
+            mana_cost_back: None,
+            cmc: self.cmc,
+            type_line_full: self.type_line.clone(),
+            type_line_front: self.card_faces[0].type_line.clone(),
+            type_line_back: Some(self.card_faces[1].type_line.clone()),
+            oracle_text: Some(self.card_faces[0].oracle_text.clone()),
+            oracle_text_back: Some(self.card_faces[1].oracle_text.clone()),
+            colors: None,
+            colors_back: None,
+            color_identity: self.color_identity.clone(),
+            is_legal: false,
+            is_legal_commander: false,
+            is_rebalanced: self.is_rebalanced(),
+            rarity: self.rarity.clone(),
+            image_small: self.card_faces[0].image_uris.as_ref().map_or(
+                "https://errors.scryfall.com/missing.jpg".to_string(),
+                |uris| uris.small.clone(),
+            ),
+            image_normal: self.card_faces[0].image_uris.as_ref().map_or(
+                "https://errors.scryfall.com/missing.jpg".to_string(),
+                |uris| uris.normal.clone(),
+            ),
+            image_large: self.card_faces[0].image_uris.as_ref().map_or(
+                "https://errors.scryfall.com/missing.jpg".to_string(),
+                |uris| uris.large.clone(),
+            ),
+            image_art_crop: self.card_faces[0].image_uris.as_ref().map_or(
+                "https://errors.scryfall.com/missing.jpg".to_string(),
+                |uris| uris.art_crop.clone(),
+            ),
+            image_border_crop: self.card_faces[0].image_uris.as_ref().map_or(
+                "https://errors.scryfall.com/missing.jpg".to_string(),
+                |uris| uris.border_crop.clone(),
+            ),
+            image_small_back: Some(self.card_faces[0].image_uris.as_ref().map_or(
+                "https://errors.scryfall.com/missing.jpg".to_string(),
+                |uris| uris.small.clone(),
+            )),
+            image_normal_back: Some(self.card_faces[0].image_uris.as_ref().map_or(
+                "https://errors.scryfall.com/missing.jpg".to_string(),
+                |uris| uris.normal.clone(),
+            )),
+            image_large_back: Some(self.card_faces[0].image_uris.as_ref().map_or(
+                "https://errors.scryfall.com/missing.jpg".to_string(),
+                |uris| uris.large.clone(),
+            )),
+            image_art_crop_back: Some(self.card_faces[0].image_uris.as_ref().map_or(
+                "https://errors.scryfall.com/missing.jpg".to_string(),
+                |uris| uris.art_crop.clone(),
+            )),
+            image_border_crop_back: Some(self.card_faces[0].image_uris.as_ref().map_or(
+                "https://errors.scryfall.com/missing.jpg".to_string(),
+                |uris| uris.border_crop.clone(),
+            )),
+        }
+    }
+}
+impl ScryfallCardProperties for DoubleFacedToken {
+    fn layout(&self) -> String {
+        "double_faced_token".to_string()
+    }
+
+    fn is_rebalanced(&self) -> bool {
+        if self.promo_types.is_some() {
+            self.promo_types
+                .as_ref()
+                .unwrap()
+                .contains(&"rebalanced".to_string())
+        } else {
+            false
+        }
+    }
+
+    fn games(&self) -> &Vec<String> {
+        &self.games
+    }
+
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn promo_types(&self) -> &Option<Vec<String>> {
+        &self.promo_types
+    }
+
+    fn released_at(&self) -> &NaiveDate {
+        &self.released_at
+    }
+
+    fn oracle_id(&self) -> String {
+        self.oracle_id.clone()
+    }
+
+    fn to_card(&self) -> Card {
+        Card {
+            oracle_id: self.oracle_id(),
+            slug: slug(&self.name()),
+            name_full: strip_alchemy_prefix(&self.name()),
+            name_front: strip_alchemy_prefix(&self.card_faces[0].name),
+            name_back: Some(strip_alchemy_prefix(&self.card_faces[1].name)),
+            lang: self.lang.clone(),
+            scryfall_uri: self.scryfall_uri.clone(),
+            layout: self.layout(),
+            mana_cost_combined: None,
+            mana_cost_front: None,
+            mana_cost_back: None,
+            cmc: self.cmc,
+            type_line_full: self.type_line.clone(),
+            type_line_front: self.type_line.clone(),
+            type_line_back: Some(self.type_line.clone()),
+            oracle_text: Some(self.card_faces[0].oracle_text.clone()),
+            oracle_text_back: Some(self.card_faces[1].oracle_text.clone()),
+            colors: None,
+            colors_back: None,
+            color_identity: self.color_identity.clone(),
+            is_legal: false,
+            is_legal_commander: false,
+            is_rebalanced: self.is_rebalanced(),
+            rarity: self.rarity.clone(),
+            image_small: self.card_faces[0].image_uris.small.clone(),
+            image_normal: self.card_faces[0].image_uris.normal.clone(),
+            image_large: self.card_faces[0].image_uris.large.clone(),
+            image_art_crop: self.card_faces[0].image_uris.art_crop.clone(),
+            image_border_crop: self.card_faces[0].image_uris.border_crop.clone(),
+            image_small_back: Some(self.card_faces[1].image_uris.small.clone()),
+            image_normal_back: Some(self.card_faces[1].image_uris.normal.clone()),
+            image_large_back: Some(self.card_faces[1].image_uris.large.clone()),
+            image_art_crop_back: Some(self.card_faces[1].image_uris.border_crop.clone()),
+            image_border_crop_back: Some(self.card_faces[1].image_uris.art_crop.clone()),
+        }
+    }
+}
+impl ScryfallCardProperties for ReversibleCard {
+    fn layout(&self) -> String {
+        "reversible_card".to_string()
+    }
+
+    fn is_rebalanced(&self) -> bool {
+        if self.promo_types.is_some() {
+            self.promo_types
+                .as_ref()
+                .unwrap()
+                .contains(&"rebalanced".to_string())
+        } else {
+            false
+        }
+    }
+
+    fn games(&self) -> &Vec<String> {
+        &self.games
+    }
+
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn oracle_id(&self) -> String {
+        self.card_faces[0].oracle_id.clone()
+    }
+
+    fn promo_types(&self) -> &Option<Vec<String>> {
+        &self.promo_types
+    }
+
+    fn released_at(&self) -> &NaiveDate {
+        &self.released_at
+    }
+
+    fn to_card(&self) -> Card {
+        Card {
+            oracle_id: self.oracle_id(),
+            slug: slug(&self.name()),
+            name_full: strip_alchemy_prefix(&self.name()),
+            name_front: strip_alchemy_prefix(&self.card_faces[0].name),
+            name_back: Some(strip_alchemy_prefix(&self.card_faces[1].name)),
+            lang: self.lang.clone(),
+            scryfall_uri: self.scryfall_uri.clone(),
+            layout: self.layout(),
+            mana_cost_combined: None,
+            mana_cost_front: None,
+            mana_cost_back: None,
+            cmc: self.card_faces[0].cmc,
+            type_line_full: self.card_faces[0].type_line.clone(),
+            type_line_front: self.card_faces[0].type_line.clone(),
+            type_line_back: Some(self.card_faces[1].type_line.clone()),
+            oracle_text: Some(self.card_faces[0].oracle_text.clone()),
+            oracle_text_back: Some(self.card_faces[1].oracle_text.clone()),
+            colors: None,
+            colors_back: None,
+            color_identity: self.color_identity.clone(),
+            is_legal: false,
+            is_legal_commander: false,
+            is_rebalanced: self.is_rebalanced(),
+            rarity: self.rarity.clone(),
+            image_small: self.card_faces[0].image_uris.small.clone(),
+            image_normal: self.card_faces[0].image_uris.normal.clone(),
+            image_large: self.card_faces[0].image_uris.large.clone(),
+            image_art_crop: self.card_faces[0].image_uris.art_crop.clone(),
+            image_border_crop: self.card_faces[0].image_uris.border_crop.clone(),
+            image_small_back: Some(self.card_faces[1].image_uris.small.clone()),
+            image_normal_back: Some(self.card_faces[1].image_uris.normal.clone()),
+            image_large_back: Some(self.card_faces[1].image_uris.large.clone()),
+            image_art_crop_back: Some(self.card_faces[1].image_uris.border_crop.clone()),
+            image_border_crop_back: Some(self.card_faces[1].image_uris.art_crop.clone()),
+        }
+    }
+}
+
+impl From<ScryfallCard> for Card {
+    fn from(card: ScryfallCard) -> Self {
+        match card {
+            ScryfallCard::Normal(c) => c.to_card(),
+            ScryfallCard::Split(c) => c.to_card(),
+            ScryfallCard::Flip(c) => c.to_card(),
+            ScryfallCard::Transform(c) => c.to_card(),
+            ScryfallCard::ModalDFC(c) => c.to_card(),
+            ScryfallCard::Meld(c) => c.to_card(),
+            ScryfallCard::Leveler(c) => c.to_card(),
+            ScryfallCard::Class(c) => c.to_card(),
+            ScryfallCard::Saga(c) => c.to_card(),
+            ScryfallCard::Adventure(c) => c.to_card(),
+            ScryfallCard::Mutate(c) => c.to_card(),
+            ScryfallCard::Prototype(c) => c.to_card(),
+            ScryfallCard::Planar(c) => c.to_card(),
+            ScryfallCard::Scheme(c) => c.to_card(),
+            ScryfallCard::Vanguard(c) => c.to_card(),
+            ScryfallCard::Token(c) => c.to_card(),
+            ScryfallCard::DoubleFacedToken(c) => c.to_card(),
+            ScryfallCard::Emblem(c) => c.to_card(),
+            ScryfallCard::Augment(c) => c.to_card(),
+            ScryfallCard::Host(c) => c.to_card(),
+            ScryfallCard::ArtSeries(c) => c.to_card(),
+            ScryfallCard::ReversibleCard(c) => c.to_card(),
+        }
+    }
 }
