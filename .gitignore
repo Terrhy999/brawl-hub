@@ -1,8 +1,10 @@
 /**/target
 migration-tool/oracle-cards.json
+migration-tool/default-cards.json
 .env
 pgdata
 server/query
 */.sqlx
 brawlhub.tar.gz
 Dockerfile
+NOTES.md
