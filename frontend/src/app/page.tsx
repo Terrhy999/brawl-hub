@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { ChangeEvent, useEffect, useState } from 'react'
 import Image from 'next/image'
 import { fetchJsonFromPublic } from './_utils/fetch-json'
+import { useRouter } from 'next/navigation'
 
 export default function Home() {
   return (
@@ -35,9 +36,12 @@ export default function Home() {
 
 type SearchResults = { cardName: string; image: string; slug: string }
 function SearchBar() {
+  const router = useRouter()
   const [searchQuery, setSearchQuery] = useState('')
-  const [searchResults, setSearchResults] = useState<SearchResults[]>()
+  const [searchResults, setSearchResults] = useState<SearchResults[]>([])
+  const [cursor, setCursor] = useState<number | null>(null)
   useEffect(() => {
+    setCursor(null)
     onSearch(searchQuery)
   }, [searchQuery])
 
@@ -50,19 +54,41 @@ function SearchBar() {
     const searchResults = await searchCard(searchQuery)
     setSearchResults(searchResults)
   }
+
   return (
     <>
       <input
         className="[border:1px_solid_rgba(255,255,255,0.25)] bg-[#0A211C] py-[12px] px-[14px] w-full max-w-[524px] focus:outline-none"
-        value={searchQuery}
+        value={cursor == null ? searchQuery : searchResults[cursor]?.cardName ?? searchQuery}
         onChange={(event: ChangeEvent<HTMLInputElement>) => setSearchQuery(event.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowDown') {
+            if (cursor == null) {
+              setCursor(0)
+            } else if (cursor >= searchResults.length - 1) {
+              setCursor(null)
+            } else {
+              setCursor(cursor! + 1)
+            }
+          } else if (e.key === 'ArrowUp') {
+            if (cursor === 0) {
+              setCursor(null)
+            } else if (cursor == null || cursor <= -1) {
+              setCursor(searchResults.length - 1)
+            } else {
+              setCursor(cursor! - 1)
+            }
+          } else if (e.key === 'Enter' && cursor != null) {
+            router.push(searchResults[cursor]?.slug)
+          }
+        }}
         placeholder="Search for Magic cards..."
       />
       {/* <div className="overflow-auto max-h-[200px] absolute bg-bg-color box-content rounded sm:translate-y-[26%] md:translate-y-[65px] lg:translate-y-[40px] w-full max-w-[524px]"> */}
-      <div className="overflow-auto max-h-[200px] rounded w-full max-w-[524px] bg-bg-color">
+      <div className="overflow-auto max-h-[200px] rounded w-full max-w-[524px] bg-bg-color" tabIndex={-1}>
         {searchResults?.map((result, i) => {
           return (
-            <Link href={`${result.slug}`} key={i} className="flex items-center">
+            <Link href={`${result.slug}`} className={`${cursor === i ? 'bg-[#0A211C]' : ''} flex items-center`} key={i}>
               <Image
                 className="mr-2 h-[40px] w-[50px]"
                 src={result.image}
