@@ -71,6 +71,7 @@ function SearchBar() {
               setCursor(cursor! + 1)
             }
           } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
             if (cursor === 0) {
               setCursor(null)
             } else if (cursor == null || cursor <= -1) {
