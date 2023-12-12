@@ -71,7 +71,7 @@ function SearchBar() {
               setCursor(cursor! + 1)
             }
           } else if (e.key === 'ArrowUp') {
-            e.preventDefault();
+            e.preventDefault()
             if (cursor === 0) {
               setCursor(null)
             } else if (cursor == null || cursor <= -1) {
@@ -86,21 +86,27 @@ function SearchBar() {
         placeholder="Search for Magic cards..."
       />
       {/* <div className="overflow-auto max-h-[200px] absolute bg-bg-color box-content rounded sm:translate-y-[26%] md:translate-y-[65px] lg:translate-y-[40px] w-full max-w-[524px]"> */}
-      <div className="overflow-auto max-h-[200px] rounded w-full max-w-[524px] bg-bg-color" tabIndex={-1}>
-        {searchResults?.map((result, i) => {
-          return (
-            <Link href={`${result.slug}`} className={`${cursor === i ? 'bg-[#0A211C]' : ''} flex items-center`} key={i}>
-              <Image
-                className="mr-2 h-[40px] w-[50px]"
-                src={result.image}
-                width={50}
-                height={50}
-                alt={result.cardName}
-              />
-              <div>{result.cardName}</div>
-            </Link>
-          )
-        })}
+      <div className="max-h-[200px] w-full max-w-[524px] relative">
+        <div className="overflow-auto absolute bg-bg-color max-h-[200px] rounded w-full max-w-[524px] ">
+          {searchResults?.map((result, i) => {
+            return (
+              <Link
+                href={`${result.slug}`}
+                className={`${cursor === i ? 'bg-[#0A211C]' : ''} flex items-center`}
+                key={i}
+              >
+                <Image
+                  className="mr-2 h-[40px] w-[50px]"
+                  src={result.image}
+                  width={50}
+                  height={50}
+                  alt={result.cardName}
+                />
+                <div>{result.cardName}</div>
+              </Link>
+            )
+          })}
+        </div>
       </div>
     </>
   )
