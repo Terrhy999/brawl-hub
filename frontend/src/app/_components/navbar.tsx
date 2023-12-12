@@ -1,9 +1,8 @@
 'use client'
 
-import { ChangeEvent, MouseEventHandler, useEffect, useState } from 'react'
-import Image from 'next/image'
+import { MouseEventHandler, useState } from 'react'
 import Link from 'next/link'
-import { fetchJsonFromPublic } from '../_utils/fetch-json'
+import { Search } from './search'
 export function NavBar() {
   const [isHamburgerMenuHidden, setHamburgerMenuHidden] = useState(true)
   return (
@@ -15,7 +14,13 @@ export function NavBar() {
         <Link href={'/'} className="md:hidden">
           BH
         </Link>
-        <SearchBar />
+        <MagnifyingGlass className="ml-2" />
+        <div className="h-full w-full ml-2">
+          <Search
+            className="bg-header-color w-full h-full"
+            overlayClass="[color:hsla(0,0%,100%,.5)] bg-bg-color h-[24px]"
+          />
+        </div>
         <div className="[border-right:1px_solid_rgba(255,255,255,0.4)] mr-[6px] h-[20px] hidden md:block" />
         <nav className="[&>*]:px-[7px] hidden md:block">
           <Link href={'/commanders/'} className="!pl-[14px]">
@@ -58,60 +63,6 @@ export function NavBar() {
       </nav>
     </header>
   )
-}
-
-type SearchResults = { cardName: string; image: string; slug: string }
-export function SearchBar() {
-  const [searchQuery, setSearchQuery] = useState('')
-  const [searchResults, setSearchResults] = useState<SearchResults[]>()
-  useEffect(() => {
-    onSearch(searchQuery)
-  }, [searchQuery])
-
-  async function onSearch(searchQuery: string) {
-    if (!searchQuery) {
-      setSearchResults([])
-      return
-    }
-
-    const searchResults = await searchCard(searchQuery)
-    setSearchResults(searchResults)
-  }
-  return (
-    <>
-      <MagnifyingGlass className="ml-2" />
-      <div className="h-full w-full ml-2">
-        <input
-          className="bg-header-color focus:outline-none w-full"
-          value={searchQuery}
-          onChange={(event: ChangeEvent<HTMLInputElement>) => setSearchQuery(event.target.value)}
-          placeholder="Search for Magic cards..."
-        />
-        {/* (TODO) Figure out how to get this div to be the COMPUTED width of parent */}
-        {/* <div className="overflow-auto max-h-[300px] absolute bg-bg-color box-content rounded translate-y-[16px] w-[53%] [border:1px_solid_rgba(0,0,0,0.4)]"> */}
-        <div className="overflow-auto max-h-[300px] absolute bg-bg-color rounded translate-y-[16px]">
-          {searchResults?.map((result, i) => {
-            return (
-              <Link href={`${result.slug}`} key={i} className="flex items-center">
-                <Image
-                  className="mr-2 h-[40px] w-[50px]"
-                  src={result.image}
-                  width={50}
-                  height={50}
-                  alt={result.cardName}
-                />
-                <div>{result.cardName}</div>
-              </Link>
-            )
-          })}
-        </div>
-      </div>
-    </>
-  )
-}
-
-async function searchCard(cardName: string) {
-  return await fetchJsonFromPublic<SearchResults[]>(`search/${cardName}`)
 }
 
 function MagnifyingGlass({ className }: { className: string }) {
