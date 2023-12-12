@@ -57,34 +57,47 @@ function SearchBar() {
 
   return (
     <>
-      <input
-        className="[border:1px_solid_rgba(255,255,255,0.25)] bg-[#0A211C] py-[12px] px-[14px] w-full max-w-[524px] focus:outline-none"
-        value={cursor == null ? searchQuery : searchResults[cursor]?.cardName ?? searchQuery}
-        onChange={(event: ChangeEvent<HTMLInputElement>) => setSearchQuery(event.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'ArrowDown') {
-            if (cursor == null) {
-              setCursor(0)
-            } else if (cursor >= searchResults.length - 1) {
-              setCursor(null)
-            } else {
-              setCursor(cursor! + 1)
+      <div className="flex w-full max-w-[524px]">
+        <input
+          className="[border:1px_solid_rgba(255,255,255,0.25)] bg-[#0A211C] py-[12px] px-[14px] w-full max-w-[524px] focus:outline-none"
+          value={cursor == null ? searchQuery : searchResults[cursor]?.cardName ?? searchQuery}
+          onChange={(event: ChangeEvent<HTMLInputElement>) => setSearchQuery(event.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowDown') {
+              if (cursor == null) {
+                setCursor(0)
+              } else if (cursor >= searchResults.length - 1) {
+                setCursor(null)
+              } else {
+                setCursor(cursor! + 1)
+              }
+            } else if (e.key === 'ArrowUp') {
+              e.preventDefault()
+              if (cursor === 0) {
+                setCursor(null)
+              } else if (cursor == null || cursor <= -1) {
+                setCursor(searchResults.length - 1)
+              } else {
+                setCursor(cursor! - 1)
+              }
+            } else if (e.key === 'Enter' && cursor != null) {
+              router.push(searchResults[cursor]?.slug)
             }
-          } else if (e.key === 'ArrowUp') {
-            e.preventDefault()
-            if (cursor === 0) {
-              setCursor(null)
-            } else if (cursor == null || cursor <= -1) {
-              setCursor(searchResults.length - 1)
-            } else {
-              setCursor(cursor! - 1)
-            }
-          } else if (e.key === 'Enter' && cursor != null) {
-            router.push(searchResults[cursor]?.slug)
+          }}
+          placeholder="Search for Magic cards..."
+        />
+        <input
+          value={
+            cursor == null
+              ? searchQuery +
+                (searchResults[0]?.cardName.substring(searchQuery.length, searchResults[0].cardName.length) ?? '')
+              : ''
           }
-        }}
-        placeholder="Search for Magic cards..."
-      />
+          onChange={() => {}}
+          className="[color:hsla(0,0%,100%,.5)] bg-bg-color py-[12px] px-[14px] w-full max-w-[524px] focus:outline-none pointer-events-none bg-transparent border-transparent border-solid border absolute"
+          tabIndex={-1}
+        />
+      </div>
       {/* <div className="overflow-auto max-h-[200px] absolute bg-bg-color box-content rounded sm:translate-y-[26%] md:translate-y-[65px] lg:translate-y-[40px] w-full max-w-[524px]"> */}
       <div className="max-h-[200px] w-full max-w-[524px] relative">
         <div className="overflow-auto absolute bg-bg-color max-h-[200px] rounded w-full max-w-[524px] ">
