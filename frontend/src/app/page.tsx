@@ -1,6 +1,6 @@
 'use client'
 import Link from 'next/link'
-import { ChangeEvent, useEffect, useState } from 'react'
+import { ChangeEvent, useEffect, useRef, useState } from 'react'
 import Image from 'next/image'
 import { fetchJsonFromPublic } from './_utils/fetch-json'
 import { useRouter } from 'next/navigation'
@@ -40,6 +40,13 @@ function SearchBar() {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<SearchResults[]>([])
   const [cursor, setCursor] = useState<number | null>(null)
+  const [isSearchResultsHidden, setSearchResultsHidden] = useState<boolean>(false)
+  const wrapperRef = useRef(null)
+  useOutsideSearchHandler(wrapperRef, () => {
+    setSearchResultsHidden(true)
+    setCursor(null)
+  })
+
   useEffect(() => {
     setCursor(null)
     onSearch(searchQuery)
@@ -56,12 +63,13 @@ function SearchBar() {
   }
 
   return (
-    <>
-      <div className="flex w-full max-w-[524px]">
+    <div ref={wrapperRef} className="w-full max-w-[524px]">
+      <div className="flex">
         <input
           className="[border:1px_solid_rgba(255,255,255,0.25)] bg-[#0A211C] py-[12px] px-[14px] w-full max-w-[524px] focus:outline-none"
           value={cursor == null ? searchQuery : searchResults[cursor]?.cardName ?? searchQuery}
           onChange={(event: ChangeEvent<HTMLInputElement>) => setSearchQuery(event.target.value)}
+          onClick={() => setSearchResultsHidden(false)}
           onKeyDown={(e) => {
             if (e.key === 'ArrowDown') {
               if (cursor == null) {
@@ -88,7 +96,7 @@ function SearchBar() {
         />
         <input
           value={
-            cursor == null
+            cursor == null && !isSearchResultsHidden
               ? searchQuery +
                 (searchResults[0]?.cardName.substring(searchQuery.length, searchResults[0].cardName.length) ?? '')
               : ''
@@ -100,7 +108,10 @@ function SearchBar() {
       </div>
       {/* <div className="overflow-auto max-h-[200px] absolute bg-bg-color box-content rounded sm:translate-y-[26%] md:translate-y-[65px] lg:translate-y-[40px] w-full max-w-[524px]"> */}
       <div className="max-h-[200px] w-full max-w-[524px] relative">
-        <div className="overflow-auto absolute bg-bg-color max-h-[200px] rounded w-full max-w-[524px] ">
+        <div
+          className="overflow-auto absolute bg-bg-color max-h-[200px] rounded w-full max-w-[524px]"
+          hidden={isSearchResultsHidden}
+        >
           {searchResults?.map((result, i) => {
             return (
               <Link
@@ -121,8 +132,24 @@ function SearchBar() {
           })}
         </div>
       </div>
-    </>
+    </div>
   )
+}
+
+function useOutsideSearchHandler(ref: any, callback: () => void) {
+  useEffect(() => {
+    function handleClickOutside(event: any) {
+      if (ref.current && !ref.current.contains(event.target)) {
+        callback()
+        console.log('You clicked outside of me!')
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [ref, callback])
 }
 
 async function searchCard(cardName: string) {
