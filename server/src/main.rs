@@ -9,13 +9,6 @@ use sqlx::{postgres::PgPoolOptions, types::Uuid, Pool, Postgres};
 use std::{env, net::SocketAddr};
 use tower_http::cors::CorsLayer;
 
-// DONE  /commmanders/ => top commanders of all colors
-// DONE /commanders/:colors => top commanders of {colors}
-// /commanders/:colors/:time => top commanders of {colors} in the past {time}
-// All of the above for cards instead of commanders
-// Search for card/commander by name
-// A route that takes a card, and returns the number of decks that card appears in and the number of decks that card COULD appear in
-
 #[derive(Clone)]
 struct AppState {
     pool: Pool<Postgres>,
@@ -23,8 +16,10 @@ struct AppState {
 
 #[tokio::main]
 async fn main() {
-    let database_url = std::env::var("DATABASE_URL").expect("set DATABASE_URL env variable");
-    println!("{}", database_url);
+    // let database_url = std::env::var("DATABASE_URL").expect("set DATABASE_URL env variable");
+    // println!("{}", database_url);
+    // let database_url = std::env::var("DATABASE_URL").expect("set DATABASE_URL env variable");
+    let database_url = "postgres://postgres:postgres@localhost/brawlhub";
     let state = AppState {
         pool: PgPoolOptions::new()
             .max_connections(5)
@@ -33,11 +28,6 @@ async fn main() {
             .expect("Couldn't connect to db"),
     };
 
-    // DONE /card/:slug route should return alchemy-version of card if one exists
-    // DONE /card_slugs should only return non-alchemy slugs (card.name is non-alchemy now)
-    // DONE /card/:slug route should return count of decks it appears in, and count of decks it could appear in
-    // /commander_top_cards/:oracle_id should not return the commander, or basic lands
-
     let app = Router::new()
         .route("/commander_slugs", get(commander_slugs))
         .route("/card_slugs", get(card_slugs))
@@ -45,7 +35,6 @@ async fn main() {
         .route("/commander/:slug", get(commander_by_slug))
         .route("/commanders/", get(top_commanders))
         .route("/commanders/:colors", get(top_commanders_of_color))
-        // .route("/commanders/:colors/:time", get(top_commanders_of_color_time))
         .route("/commanders/colorless", get(top_commanders_colorless))
         .route("/top_cards", get(top_cards))
         .route("/top_cards/:colors", get(top_cards_of_color))
@@ -54,14 +43,6 @@ async fn main() {
             "/top_commanders_for_card/:slug",
             get(top_commanders_for_card),
         )
-        // .route(
-        //     "/top_cards_for_commander/:oracle_id",
-        //     get(top_cards_for_commander),
-        // )
-        // .route(
-        //     "/top_cards_for_color_identity/:oracle_id",
-        //     get(top_cards_for_color_identity_of_commander),
-        // )
         .route("/search/:card_", get(get_card))
         .layer(CorsLayer::permissive())
         .with_state(state);
@@ -73,82 +54,6 @@ async fn main() {
         .serve(app.into_make_service())
         .await
         .expect("Failed to start server");
-}
-#[derive(serde::Serialize)]
-struct Card {
-    oracle_id: String,
-    name_full: String,
-    name_front: String,
-    name_back: Option<String>,
-    slug: String,
-    scryfall_uri: String,
-    layout: String,
-    rarity: String,
-    lang: String,
-    mana_cost_combined: Option<String>,
-    mana_cost_front: Option<String>,
-    mana_cost_back: Option<String>,
-    cmc: f32,
-    type_line_full: String,
-    type_line_front: String,
-    type_line_back: Option<String>,
-    oracle_text: Option<String>,
-    oracle_text_back: Option<String>,
-    colors: Option<Vec<String>>,
-    colors_back: Option<Vec<String>>,
-    color_identity: Vec<String>,
-    is_legal: bool,
-    is_legal_commander: bool,
-    is_rebalanced: bool,
-    image_small: String,
-    image_normal: String,
-    image_large: String,
-    image_art_crop: String,
-    image_border_crop: String,
-    image_small_back: Option<String>,
-    image_normal_back: Option<String>,
-    image_large_back: Option<String>,
-    image_art_crop_back: Option<String>,
-    image_border_crop_back: Option<String>,
-}
-
-#[derive(serde::Serialize)]
-struct CardCount {
-    oracle_id: String,
-    name_full: String,
-    name_front: String,
-    name_back: Option<String>,
-    slug: String,
-    scryfall_uri: String,
-    layout: String,
-    rarity: String,
-    lang: String,
-    mana_cost_combined: Option<String>,
-    mana_cost_front: Option<String>,
-    mana_cost_back: Option<String>,
-    cmc: f32,
-    type_line_full: String,
-    type_line_front: String,
-    type_line_back: Option<String>,
-    oracle_text: Option<String>,
-    oracle_text_back: Option<String>,
-    colors: Option<Vec<String>>,
-    colors_back: Option<Vec<String>>,
-    color_identity: Vec<String>,
-    is_legal: bool,
-    is_legal_commander: bool,
-    is_rebalanced: bool,
-    image_small: String,
-    image_normal: String,
-    image_large: String,
-    image_art_crop: String,
-    image_border_crop: String,
-    image_small_back: Option<String>,
-    image_normal_back: Option<String>,
-    image_large_back: Option<String>,
-    image_art_crop_back: Option<String>,
-    image_border_crop_back: Option<String>,
-    count: Option<i64>,
 }
 
 async fn card_slugs(State(AppState { pool }): State<AppState>) -> Json<Vec<Option<String>>> {
@@ -167,46 +72,6 @@ async fn card_slugs(State(AppState { pool }): State<AppState>) -> Json<Vec<Optio
     .map(|res| res.slug)
     .collect();
     Json(res)
-}
-
-#[derive(serde::Serialize)]
-struct CardBySlug {
-    oracle_id: String,
-    name_full: String,
-    name_front: String,
-    name_back: Option<String>,
-    slug: String,
-    scryfall_uri: String,
-    layout: String,
-    rarity: String,
-    lang: String,
-    mana_cost_combined: Option<String>,
-    mana_cost_front: Option<String>,
-    mana_cost_back: Option<String>,
-    cmc: f32,
-    type_line_full: String,
-    type_line_front: String,
-    type_line_back: Option<String>,
-    oracle_text: Option<String>,
-    oracle_text_back: Option<String>,
-    colors: Option<Vec<String>>,
-    colors_back: Option<Vec<String>>,
-    color_identity: Vec<String>,
-    is_legal: bool,
-    is_legal_commander: bool,
-    is_rebalanced: bool,
-    image_small: String,
-    image_normal: String,
-    image_large: String,
-    image_art_crop: String,
-    image_border_crop: String,
-    image_small_back: Option<String>,
-    image_normal_back: Option<String>,
-    image_large_back: Option<String>,
-    image_art_crop_back: Option<String>,
-    image_border_crop_back: Option<String>,
-    total_decks_with_card: Option<i64>,
-    total_decks_could_play: Option<i64>,
 }
 
 #[axum::debug_handler]
@@ -238,47 +103,6 @@ async fn card_by_slug(
     .await
     .expect("couldn't fetch card by slug");
     Json(res)
-}
-#[derive(serde::Serialize)]
-struct CardSlug {
-    oracle_id: String,
-    name_full: String,
-    name_front: String,
-    name_back: Option<String>,
-    slug: String,
-    scryfall_uri: String,
-    layout: String,
-    rarity: String,
-    lang: String,
-    mana_cost_combined: Option<String>,
-    mana_cost_front: Option<String>,
-    mana_cost_back: Option<String>,
-    cmc: f32,
-    type_line_full: String,
-    type_line_front: String,
-    type_line_back: Option<String>,
-    oracle_text: Option<String>,
-    oracle_text_back: Option<String>,
-    colors: Option<Vec<String>>,
-    colors_back: Option<Vec<String>>,
-    color_identity: Vec<String>,
-    is_legal: bool,
-    is_legal_commander: bool,
-    is_rebalanced: bool,
-    image_small: String,
-    image_normal: String,
-    image_large: String,
-    image_art_crop: String,
-    image_border_crop: String,
-    image_small_back: Option<String>,
-    image_normal_back: Option<String>,
-    image_large_back: Option<String>,
-    image_art_crop_back: Option<String>,
-    image_border_crop_back: Option<String>,
-    total_decks: Option<i64>,
-    all_decks: Option<i64>,
-    rank: Option<i64>,
-    total_commander_decks_of_ci: Option<i64>,
 }
 
 async fn commander_by_slug(
@@ -401,46 +225,6 @@ async fn top_commanders_colorless(
     .expect("error retrieving from db");
 
     Json(res)
-}
-
-#[derive(Debug, serde::Serialize)]
-struct CommanderTopCard {
-    oracle_id: String,
-    name_full: String,
-    name_front: String,
-    name_back: Option<String>,
-    slug: String,
-    scryfall_uri: String,
-    layout: String,
-    rarity: String,
-    lang: String,
-    mana_cost_combined: Option<String>,
-    mana_cost_front: Option<String>,
-    mana_cost_back: Option<String>,
-    cmc: f32,
-    type_line_full: String,
-    type_line_front: String,
-    type_line_back: Option<String>,
-    oracle_text: Option<String>,
-    oracle_text_back: Option<String>,
-    colors: Option<Vec<String>>,
-    colors_back: Option<Vec<String>>,
-    color_identity: Vec<String>,
-    is_legal: bool,
-    is_legal_commander: bool,
-    is_rebalanced: bool,
-    image_small: String,
-    image_normal: String,
-    image_large: String,
-    image_art_crop: String,
-    image_border_crop: String,
-    image_small_back: Option<String>,
-    image_normal_back: Option<String>,
-    image_large_back: Option<String>,
-    image_art_crop_back: Option<String>,
-    image_border_crop_back: Option<String>,
-    num_decks_with_card: Option<i64>,
-    num_decks_total: Option<i64>,
 }
 
 async fn top_cards_of_color(
@@ -624,49 +408,406 @@ async fn top_cards(State(AppState { pool }): State<AppState>) -> Json<Vec<CardBy
     Json(res)
 }
 
-// #[derive(Debug, serde::Serialize)]
-// struct TopCardsForCommander {
-//     creatures: Vec<CommanderTopCard>,
-//     instants: Vec<CommanderTopCard>,
-//     sorceries: Vec<CommanderTopCard>,
-//     utility_artifacts: Vec<CommanderTopCard>,
-//     enchantments: Vec<CommanderTopCard>,
-//     planeswalkers: Vec<CommanderTopCard>,
-//     mana_artifacts: Vec<CommanderTopCard>,
-//     lands: Vec<CommanderTopCard>,
-//     other: Vec<CommanderTopCard>,
-// }
+// TODO Clean this up
+async fn commander_top_cards(
+    Path(oracle_id): Path<String>,
+    State(AppState { pool }): State<AppState>,
+) -> Json<TopCardsForCommander2> {
+    let top_cards_for_commander = sqlx::query_as!(
+        TopCard2,
+        "SELECT card.*, quantity, total_commander_decks, ci_quantity, total_commander_decks_of_ci FROM card
+        JOIN (
+            SELECT oracle_id, COUNT(oracle_id) as quantity FROM decklist
+            LEFT JOIN deck ON decklist.deck_id = deck.id
+            WHERE commander = $1 AND oracle_id <> $1
+            GROUP BY oracle_id
+        ) AS card_quantity ON card_quantity.oracle_id = card.oracle_id
+        JOIN (
+            SELECT COUNT(*) AS total_commander_decks
+                FROM deck
+                WHERE commander = $1
+        ) AS total_commander_decks ON true
+        JOIN (
+            SELECT oracle_id, COUNT(oracle_id) as ci_quantity FROM decklist
+            LEFT JOIN deck ON decklist.deck_id = deck.id
+            WHERE color_identity = (SELECT color_identity FROM card WHERE oracle_id = $1)
+            GROUP BY oracle_id
+        ) AS ci_card_quantity ON ci_card_quantity.oracle_id = card.oracle_id
+        JOIN (
+            SELECT COUNT(*) AS total_commander_decks_of_ci
+            FROM deck
+            WHERE color_identity = (SELECT color_identity FROM card WHERE oracle_id = $1)
+        ) AS total_commander_decks_of_ci ON true
+        WHERE card.type_line_full NOT LIKE 'Basic Land%'
+        ORDER BY quantity DESC
+        LIMIT 1000;",
+        Uuid::parse_str(&oracle_id).expect("uuid parsed wrong"),
+    )
+    .fetch_all(&pool)
+    .await
+    .expect("error querying db");
 
-// #[derive(Debug, serde::Serialize)]
-// struct TopCard {
-//     oracle_id: String,
-//     name: String,
-//     lang: String,
-//     scryfall_uri: String,
-//     layout: String,
-//     mana_cost: Option<String>,
-//     cmc: f32,
-//     type_line: String,
-//     oracle_text: Option<String>,
-//     colors: Option<Vec<String>>,
-//     color_identity: Vec<String>,
-//     is_legal: bool,
-//     is_commander: bool,
-//     rarity: String,
-//     image_small: String,
-//     image_normal: String,
-//     image_large: String,
-//     image_art_crop: String,
-//     image_border_crop: String,
-//     slug: Option<String>,
-//     total_decks_of_commander: Option<i64>,
-//     decks_of_commander_with_card: Option<i64>,
-//     total_decks_of_color: Option<i64>,
-//     decks_of_color_with_card: Option<i64>,
-//     usage_in_commander: Option<f64>,
-//     usage_in_color: Option<f64>,
-//     synergy: Option<f64>,
-// }
+    let top_cards_for_commander = top_cards_for_commander
+        .iter()
+        .map(TopCardWithSynergy::add_synergy);
+
+    let mut top_cards = TopCardsForCommander2 {
+        creatures: vec![],
+        instants: vec![],
+        sorceries: vec![],
+        utility_artifacts: vec![],
+        enchantments: vec![],
+        planeswalkers: vec![],
+        mana_artifacts: vec![],
+        lands: vec![],
+    };
+
+    fn is_mana_artifact(card: &TopCardWithSynergy) -> bool {
+        card.type_line_full
+            .to_ascii_lowercase()
+            .contains("artifact")
+            && card
+                .oracle_text
+                .clone()
+                .expect("missing oracle text")
+                .to_ascii_lowercase()
+                .contains("add")
+            && card
+                .oracle_text
+                .clone()
+                .expect("missing oracle text")
+                .to_ascii_lowercase()
+                .contains("mana")
+    }
+
+    for card in top_cards_for_commander.into_iter() {
+        match &card {
+            t if t.type_line_front.to_ascii_lowercase().contains("creature")
+                && top_cards.creatures.len() < 50 =>
+            {
+                top_cards.creatures.push(card)
+            }
+            t if t.type_line_front.to_ascii_lowercase().contains("instant")
+                && top_cards.instants.len() < 50 =>
+            {
+                top_cards.instants.push(card)
+            }
+            t if t.type_line_front.to_ascii_lowercase().contains("sorcery")
+                && top_cards.sorceries.len() < 50 =>
+            {
+                top_cards.sorceries.push(card)
+            }
+            t if t
+                .type_line_front
+                .to_ascii_lowercase()
+                .contains("planeswalker")
+                && top_cards.planeswalkers.len() < 50 =>
+            {
+                top_cards.planeswalkers.push(card)
+            }
+            t if t
+                .type_line_front
+                .to_ascii_lowercase()
+                .contains("enchantment")
+                && top_cards.enchantments.len() < 50 =>
+            {
+                top_cards.enchantments.push(card)
+            }
+            t if t.type_line_front.to_ascii_lowercase().contains("land")
+                && top_cards.lands.len() < 50 =>
+            {
+                top_cards.lands.push(card)
+            }
+            t if is_mana_artifact(&t) => top_cards.mana_artifacts.push(card),
+            t if t.type_line_front.to_ascii_lowercase().contains("artifact")
+                && top_cards.utility_artifacts.len() < 50 =>
+            {
+                top_cards.utility_artifacts.push(card)
+            }
+            _ => (),
+        };
+    }
+
+    Json(top_cards)
+}
+
+// return the front face name the of flip cards
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SearchResults {
+    card_name: String,
+    image: String,
+    slug: String,
+}
+async fn get_card(
+    Path(card_name): Path<String>,
+    State(AppState { pool }): State<AppState>,
+) -> Json<Vec<SearchResults>> {
+    struct Response {
+        name_full: String,
+        image_art_crop: String,
+        slug: Option<String>,
+        is_legal_commander: bool,
+    }
+    let res = sqlx::query_as!(
+        Response,
+        "SELECT name_full, image_art_crop, slug, is_legal_commander FROM card WHERE is_legal = true AND name_full ILIKE $1 LIMIT 20",
+        format!("%{}%", card_name)
+    )
+    .fetch_all(&pool)
+    .await
+    .expect("couldn't fetch card");
+
+    fn get_route(is_commander: bool, slug: String) -> String {
+        if is_commander {
+            format!("/commander/{}", slug)
+        } else {
+            format!("/card/{}", slug)
+        }
+    }
+
+    fn get_search_results(res: Response) -> SearchResults {
+        match res.slug {
+            Some(slug) => SearchResults {
+                card_name: res.name_full,
+                image: res.image_art_crop,
+                slug: get_route(res.is_legal_commander, slug),
+            },
+            None => panic!("Not found"),
+        }
+    }
+
+    let search_results: Vec<SearchResults> = res.into_iter().map(get_search_results).collect();
+    Json(search_results)
+}
+
+async fn top_commanders_for_card(
+    Path(slug): Path<String>,
+    State(AppState { pool }): State<AppState>,
+) -> Json<Vec<CardCount>> {
+    let res = sqlx::query_as!(
+        CardCount,
+        "SELECT card.*, commander_stats.count
+        FROM card
+        JOIN (
+            SELECT deck.commander, COUNT(deck.commander) as count
+            FROM card
+            JOIN decklist ON card.oracle_id = decklist.oracle_id
+            JOIN deck ON decklist.deck_id = deck.id
+            WHERE card.oracle_id = (
+                SELECT card.oracle_id FROM card WHERE card.slug = $1
+            )
+            GROUP BY deck.commander
+            ORDER BY COUNT(deck.commander) DESC
+        ) AS commander_stats ON card.oracle_id = commander_stats.commander
+        ",
+        slug
+    )
+    .fetch_all(&pool)
+    .await
+    .expect("couldn't fetch commanders");
+    Json(res)
+}
+
+#[derive(serde::Serialize)]
+struct Card {
+    oracle_id: String,
+    name_full: String,
+    name_front: String,
+    name_back: Option<String>,
+    slug: String,
+    scryfall_uri: String,
+    layout: String,
+    rarity: String,
+    lang: String,
+    mana_cost_combined: Option<String>,
+    mana_cost_front: Option<String>,
+    mana_cost_back: Option<String>,
+    cmc: f32,
+    type_line_full: String,
+    type_line_front: String,
+    type_line_back: Option<String>,
+    oracle_text: Option<String>,
+    oracle_text_back: Option<String>,
+    colors: Option<Vec<String>>,
+    colors_back: Option<Vec<String>>,
+    color_identity: Vec<String>,
+    is_legal: bool,
+    is_legal_commander: bool,
+    is_rebalanced: bool,
+    image_small: String,
+    image_normal: String,
+    image_large: String,
+    image_art_crop: String,
+    image_border_crop: String,
+    image_small_back: Option<String>,
+    image_normal_back: Option<String>,
+    image_large_back: Option<String>,
+    image_art_crop_back: Option<String>,
+    image_border_crop_back: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+struct CardCount {
+    oracle_id: String,
+    name_full: String,
+    name_front: String,
+    name_back: Option<String>,
+    slug: String,
+    scryfall_uri: String,
+    layout: String,
+    rarity: String,
+    lang: String,
+    mana_cost_combined: Option<String>,
+    mana_cost_front: Option<String>,
+    mana_cost_back: Option<String>,
+    cmc: f32,
+    type_line_full: String,
+    type_line_front: String,
+    type_line_back: Option<String>,
+    oracle_text: Option<String>,
+    oracle_text_back: Option<String>,
+    colors: Option<Vec<String>>,
+    colors_back: Option<Vec<String>>,
+    color_identity: Vec<String>,
+    is_legal: bool,
+    is_legal_commander: bool,
+    is_rebalanced: bool,
+    image_small: String,
+    image_normal: String,
+    image_large: String,
+    image_art_crop: String,
+    image_border_crop: String,
+    image_small_back: Option<String>,
+    image_normal_back: Option<String>,
+    image_large_back: Option<String>,
+    image_art_crop_back: Option<String>,
+    image_border_crop_back: Option<String>,
+    count: Option<i64>,
+}
+
+
+#[derive(serde::Serialize)]
+struct CardBySlug {
+    oracle_id: String,
+    name_full: String,
+    name_front: String,
+    name_back: Option<String>,
+    slug: String,
+    scryfall_uri: String,
+    layout: String,
+    rarity: String,
+    lang: String,
+    mana_cost_combined: Option<String>,
+    mana_cost_front: Option<String>,
+    mana_cost_back: Option<String>,
+    cmc: f32,
+    type_line_full: String,
+    type_line_front: String,
+    type_line_back: Option<String>,
+    oracle_text: Option<String>,
+    oracle_text_back: Option<String>,
+    colors: Option<Vec<String>>,
+    colors_back: Option<Vec<String>>,
+    color_identity: Vec<String>,
+    is_legal: bool,
+    is_legal_commander: bool,
+    is_rebalanced: bool,
+    image_small: String,
+    image_normal: String,
+    image_large: String,
+    image_art_crop: String,
+    image_border_crop: String,
+    image_small_back: Option<String>,
+    image_normal_back: Option<String>,
+    image_large_back: Option<String>,
+    image_art_crop_back: Option<String>,
+    image_border_crop_back: Option<String>,
+    total_decks_with_card: Option<i64>,
+    total_decks_could_play: Option<i64>,
+}
+
+#[derive(serde::Serialize)]
+struct CardSlug {
+    oracle_id: String,
+    name_full: String,
+    name_front: String,
+    name_back: Option<String>,
+    slug: String,
+    scryfall_uri: String,
+    layout: String,
+    rarity: String,
+    lang: String,
+    mana_cost_combined: Option<String>,
+    mana_cost_front: Option<String>,
+    mana_cost_back: Option<String>,
+    cmc: f32,
+    type_line_full: String,
+    type_line_front: String,
+    type_line_back: Option<String>,
+    oracle_text: Option<String>,
+    oracle_text_back: Option<String>,
+    colors: Option<Vec<String>>,
+    colors_back: Option<Vec<String>>,
+    color_identity: Vec<String>,
+    is_legal: bool,
+    is_legal_commander: bool,
+    is_rebalanced: bool,
+    image_small: String,
+    image_normal: String,
+    image_large: String,
+    image_art_crop: String,
+    image_border_crop: String,
+    image_small_back: Option<String>,
+    image_normal_back: Option<String>,
+    image_large_back: Option<String>,
+    image_art_crop_back: Option<String>,
+    image_border_crop_back: Option<String>,
+    total_decks: Option<i64>,
+    all_decks: Option<i64>,
+    rank: Option<i64>,
+    total_commander_decks_of_ci: Option<i64>,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct CommanderTopCard {
+    oracle_id: String,
+    name_full: String,
+    name_front: String,
+    name_back: Option<String>,
+    slug: String,
+    scryfall_uri: String,
+    layout: String,
+    rarity: String,
+    lang: String,
+    mana_cost_combined: Option<String>,
+    mana_cost_front: Option<String>,
+    mana_cost_back: Option<String>,
+    cmc: f32,
+    type_line_full: String,
+    type_line_front: String,
+    type_line_back: Option<String>,
+    oracle_text: Option<String>,
+    oracle_text_back: Option<String>,
+    colors: Option<Vec<String>>,
+    colors_back: Option<Vec<String>>,
+    color_identity: Vec<String>,
+    is_legal: bool,
+    is_legal_commander: bool,
+    is_rebalanced: bool,
+    image_small: String,
+    image_normal: String,
+    image_large: String,
+    image_art_crop: String,
+    image_border_crop: String,
+    image_small_back: Option<String>,
+    image_normal_back: Option<String>,
+    image_large_back: Option<String>,
+    image_art_crop_back: Option<String>,
+    image_border_crop_back: Option<String>,
+    num_decks_with_card: Option<i64>,
+    num_decks_total: Option<i64>,
+}
 
 #[derive(Debug, serde::Serialize)]
 struct TopCard2 {
@@ -818,393 +959,4 @@ struct TopCardsForCommander2 {
     planeswalkers: Vec<TopCardWithSynergy>,
     mana_artifacts: Vec<TopCardWithSynergy>,
     lands: Vec<TopCardWithSynergy>,
-}
-// TODO Clean this up
-async fn commander_top_cards(
-    Path(oracle_id): Path<String>,
-    State(AppState { pool }): State<AppState>,
-) -> Json<TopCardsForCommander2> {
-    let top_cards_for_commander = sqlx::query_as!(
-        TopCard2,
-        "SELECT card.*, quantity, total_commander_decks, ci_quantity, total_commander_decks_of_ci FROM card
-        JOIN (
-            SELECT oracle_id, COUNT(oracle_id) as quantity FROM decklist
-            LEFT JOIN deck ON decklist.deck_id = deck.id
-            WHERE commander = $1 AND oracle_id <> $1
-            GROUP BY oracle_id
-        ) AS card_quantity ON card_quantity.oracle_id = card.oracle_id
-        JOIN (
-            SELECT COUNT(*) AS total_commander_decks
-                FROM deck
-                WHERE commander = $1
-        ) AS total_commander_decks ON true
-        JOIN (
-            SELECT oracle_id, COUNT(oracle_id) as ci_quantity FROM decklist
-            LEFT JOIN deck ON decklist.deck_id = deck.id
-            WHERE color_identity = (SELECT color_identity FROM card WHERE oracle_id = $1)
-            GROUP BY oracle_id
-        ) AS ci_card_quantity ON ci_card_quantity.oracle_id = card.oracle_id
-        JOIN (
-            SELECT COUNT(*) AS total_commander_decks_of_ci
-            FROM deck
-            WHERE color_identity = (SELECT color_identity FROM card WHERE oracle_id = $1)
-        ) AS total_commander_decks_of_ci ON true
-        WHERE card.type_line_full NOT LIKE 'Basic Land%'
-        ORDER BY quantity DESC
-        LIMIT 1000;",
-        Uuid::parse_str(&oracle_id).expect("uuid parsed wrong"),
-    )
-    .fetch_all(&pool)
-    .await
-    .expect("error querying db");
-
-    let top_cards_for_commander = top_cards_for_commander
-        .iter()
-        .map(TopCardWithSynergy::add_synergy);
-
-    let mut top_cards = TopCardsForCommander2 {
-        creatures: vec![],
-        instants: vec![],
-        sorceries: vec![],
-        utility_artifacts: vec![],
-        enchantments: vec![],
-        planeswalkers: vec![],
-        mana_artifacts: vec![],
-        lands: vec![],
-    };
-
-    fn is_mana_artifact(card: &TopCardWithSynergy) -> bool {
-        card.type_line_full
-            .to_ascii_lowercase()
-            .contains("artifact")
-            && card
-                .oracle_text
-                .clone()
-                .expect("missing oracle text")
-                .to_ascii_lowercase()
-                .contains("add")
-            && card
-                .oracle_text
-                .clone()
-                .expect("missing oracle text")
-                .to_ascii_lowercase()
-                .contains("mana")
-    }
-
-    for card in top_cards_for_commander.into_iter() {
-        match &card {
-            t if t.type_line_front.to_ascii_lowercase().contains("creature")
-                && top_cards.creatures.len() < 50 =>
-            {
-                top_cards.creatures.push(card)
-            }
-            t if t.type_line_front.to_ascii_lowercase().contains("instant")
-                && top_cards.instants.len() < 50 =>
-            {
-                top_cards.instants.push(card)
-            }
-            t if t.type_line_front.to_ascii_lowercase().contains("sorcery")
-                && top_cards.sorceries.len() < 50 =>
-            {
-                top_cards.sorceries.push(card)
-            }
-            t if t
-                .type_line_front
-                .to_ascii_lowercase()
-                .contains("planeswalker")
-                && top_cards.planeswalkers.len() < 50 =>
-            {
-                top_cards.planeswalkers.push(card)
-            }
-            t if t
-                .type_line_front
-                .to_ascii_lowercase()
-                .contains("enchantment")
-                && top_cards.enchantments.len() < 50 =>
-            {
-                top_cards.enchantments.push(card)
-            }
-            t if t.type_line_front.to_ascii_lowercase().contains("land")
-                && top_cards.lands.len() < 50 =>
-            {
-                top_cards.lands.push(card)
-            }
-            t if is_mana_artifact(&t) => top_cards.mana_artifacts.push(card),
-            t if t.type_line_front.to_ascii_lowercase().contains("artifact")
-                && top_cards.utility_artifacts.len() < 50 =>
-            {
-                top_cards.utility_artifacts.push(card)
-            }
-            _ => (),
-        };
-    }
-
-    Json(top_cards)
-}
-
-// #[debug_handler]
-// async fn top_cards_for_commander(
-//     Path(oracle_id): Path<String>,
-//     State(AppState { pool }): State<AppState>,
-// ) -> Json<TopCardsForCommander> {
-//     let res = sqlx::query_as!(
-//         CommanderTopCard,
-//         "SELECT c.*, num_decks_with_card, num_decks_total
-//         FROM card c
-//         JOIN (
-//             SELECT c1.oracle_id, COUNT(dl1.deck_id) AS num_decks_with_card
-//             FROM card c1
-//             LEFT JOIN decklist dl1 ON c1.oracle_id = dl1.oracle_id
-//             WHERE dl1.deck_id IN (
-//                 SELECT id
-//                 FROM deck
-//                 WHERE commander = $1
-//             )
-//             GROUP BY c1.oracle_id
-//         )
-//         AS CardPlayCounts ON c.oracle_id = CardPlayCounts.oracle_id
-//         JOIN (
-//             SELECT COUNT(*) AS num_decks_total
-//             FROM deck
-//             WHERE commander = $1
-//         )
-//         AS TotalCommanderDecks ON true
-//         WHERE num_decks_total > 0
-//         ORDER BY num_decks_with_card DESC;",
-//         Uuid::parse_str(&oracle_id).expect("uuid parsed wrong")
-//     )
-//     .fetch_all(&pool)
-//     .await
-//     .expect("error querying db");
-
-//     fn is_mana_artifact(card: &CommanderTopCard) -> bool {
-//         card.type_line.to_ascii_lowercase().contains("artifact")
-//             && card
-//                 .oracle_text
-//                 .clone()
-//                 .expect("missing oracle text")
-//                 .to_ascii_lowercase()
-//                 .contains("add")
-//             && card
-//                 .oracle_text
-//                 .clone()
-//                 .expect("missing oracle text")
-//                 .to_ascii_lowercase()
-//                 .contains("mana")
-//     }
-
-//     let mut top_cards_sorted = TopCardsForCommander {
-//         creatures: vec![],
-//         instants: vec![],
-//         sorceries: vec![],
-//         utility_artifacts: vec![],
-//         enchantments: vec![],
-//         planeswalkers: vec![],
-//         mana_artifacts: vec![],
-//         lands: vec![],
-//         other: vec![],
-//     };
-
-//     for card in res {
-//         match &card {
-//             t if t.type_line.to_ascii_lowercase().contains("creature") => {
-//                 top_cards_sorted.creatures.push(card)
-//             }
-//             t if t.type_line.to_ascii_lowercase().contains("instant") => {
-//                 top_cards_sorted.instants.push(card)
-//             }
-//             t if t.type_line.to_ascii_lowercase().contains("sorcery") => {
-//                 top_cards_sorted.sorceries.push(card)
-//             }
-//             t if t.type_line.to_ascii_lowercase().contains("planeswalker") => {
-//                 top_cards_sorted.planeswalkers.push(card)
-//             }
-//             t if t.type_line.to_ascii_lowercase().contains("enchantment") => {
-//                 top_cards_sorted.enchantments.push(card)
-//             }
-//             t if t.type_line.to_ascii_lowercase().contains("land") => {
-//                 top_cards_sorted.lands.push(card)
-//             }
-//             t if is_mana_artifact(&t) => top_cards_sorted.mana_artifacts.push(card),
-//             t if t.type_line.to_ascii_lowercase().contains("artifact") => {
-//                 top_cards_sorted.utility_artifacts.push(card)
-//             }
-//             _ => top_cards_sorted.other.push(card),
-//         };
-//     }
-
-//     Json(top_cards_sorted)
-// }
-
-// async fn top_cards_for_color_identity_of_commander(
-//     Path(oracle_id): Path<String>,
-//     State(AppState { pool }): State<AppState>,
-// ) -> Json<TopCardsForCommander> {
-//     let res = sqlx::query_as!(
-//         CommanderTopCard,
-//         "WITH ColorIdentity AS (SELECT color_identity FROM card WHERE oracle_id = $1),
-//         DecksWithCommanderColor AS (
-//             SELECT d.id
-//             FROM deck d
-//             WHERE EXISTS (
-//                 SELECT 1
-//                 FROM card c
-//                 WHERE d.commander = c.oracle_id
-//                 AND (
-//                     (c.color_identity = (SELECT * FROM ColorIdentity))
-//                     OR
-//                     ((SELECT * FROM ColorIdentity) = '{}'::char(1)[] AND c.color_identity = ARRAY[]::char(1)[])
-//                 )
-//             )
-//         )
-//         SELECT DISTINCT c.*,
-//                (SELECT COUNT(*) FROM DecksWithCommanderColor) AS num_decks_total,
-//                (SELECT COUNT(*) FROM DecksWithCommanderColor dc
-//                 WHERE dc.id IN (SELECT dl.deck_id FROM decklist dl WHERE dl.oracle_id = c.oracle_id)) AS num_decks_with_card
-//         FROM card c
-//         JOIN decklist dl ON c.oracle_id = dl.oracle_id
-//         WHERE dl.deck_id IN (SELECT id FROM DecksWithCommanderColor)
-//         ORDER BY num_decks_with_card DESC;
-//         ",
-//         Uuid::parse_str(&oracle_id).expect("uuid parsed wrong")
-//     )
-//     .fetch_all(&pool)
-//     .await
-//     .expect("couldn't query db");
-
-//     fn is_mana_artifact(card: &CommanderTopCard) -> bool {
-//         card.type_line.to_ascii_lowercase().contains("artifact")
-//             && card
-//                 .oracle_text
-//                 .clone()
-//                 .expect("missing oracle text")
-//                 .to_ascii_lowercase()
-//                 .contains("add")
-//             && card
-//                 .oracle_text
-//                 .clone()
-//                 .expect("missing oracle text")
-//                 .to_ascii_lowercase()
-//                 .contains("mana")
-//     }
-
-//     let mut top_cards_sorted = TopCardsForCommander {
-//         creatures: vec![],
-//         instants: vec![],
-//         sorceries: vec![],
-//         utility_artifacts: vec![],
-//         enchantments: vec![],
-//         planeswalkers: vec![],
-//         mana_artifacts: vec![],
-//         lands: vec![],
-//         other: vec![],
-//     };
-
-//     for card in res {
-//         match &card {
-//             t if t.type_line.to_ascii_lowercase().contains("creature") => {
-//                 top_cards_sorted.creatures.push(card)
-//             }
-//             t if t.type_line.to_ascii_lowercase().contains("instant") => {
-//                 top_cards_sorted.instants.push(card)
-//             }
-//             t if t.type_line.to_ascii_lowercase().contains("sorcery") => {
-//                 top_cards_sorted.sorceries.push(card)
-//             }
-//             t if t.type_line.to_ascii_lowercase().contains("planeswalker") => {
-//                 top_cards_sorted.planeswalkers.push(card)
-//             }
-//             t if t.type_line.to_ascii_lowercase().contains("enchantment") => {
-//                 top_cards_sorted.enchantments.push(card)
-//             }
-//             t if t.type_line.to_ascii_lowercase().contains("land") => {
-//                 top_cards_sorted.lands.push(card)
-//             }
-//             t if is_mana_artifact(&t) => top_cards_sorted.mana_artifacts.push(card),
-//             t if t.type_line.to_ascii_lowercase().contains("artifact") => {
-//                 top_cards_sorted.utility_artifacts.push(card)
-//             }
-//             _ => top_cards_sorted.other.push(card),
-//         };
-//     }
-
-//     Json(top_cards_sorted)
-// }
-
-// return the front face name the of flip cards
-#[derive(Debug, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SearchResults {
-    card_name: String,
-    image: String,
-    slug: String,
-}
-async fn get_card(
-    Path(card_name): Path<String>,
-    State(AppState { pool }): State<AppState>,
-) -> Json<Vec<SearchResults>> {
-    struct Response {
-        name_full: String,
-        image_art_crop: String,
-        slug: Option<String>,
-        is_legal_commander: bool,
-    }
-    let res = sqlx::query_as!(
-        Response,
-        "SELECT name_full, image_art_crop, slug, is_legal_commander FROM card WHERE is_legal = true AND name_full ILIKE $1 LIMIT 20",
-        format!("%{}%", card_name)
-    )
-    .fetch_all(&pool)
-    .await
-    .expect("couldn't fetch card");
-
-    fn get_route(is_commander: bool, slug: String) -> String {
-        if is_commander {
-            format!("/commander/{}", slug)
-        } else {
-            format!("/card/{}", slug)
-        }
-    }
-
-    fn get_search_results(res: Response) -> SearchResults {
-        match res.slug {
-            Some(slug) => SearchResults {
-                card_name: res.name_full,
-                image: res.image_art_crop,
-                slug: get_route(res.is_legal_commander, slug),
-            },
-            None => panic!("Not found"),
-        }
-    }
-
-    let search_results: Vec<SearchResults> = res.into_iter().map(get_search_results).collect();
-    Json(search_results)
-}
-
-async fn top_commanders_for_card(
-    Path(slug): Path<String>,
-    State(AppState { pool }): State<AppState>,
-) -> Json<Vec<CardCount>> {
-    let res = sqlx::query_as!(
-        CardCount,
-        "SELECT card.*, commander_stats.count
-        FROM card
-        JOIN (
-            SELECT deck.commander, COUNT(deck.commander) as count
-            FROM card
-            JOIN decklist ON card.oracle_id = decklist.oracle_id
-            JOIN deck ON decklist.deck_id = deck.id
-            WHERE card.oracle_id = (
-                SELECT card.oracle_id FROM card WHERE card.slug = $1
-            )
-            GROUP BY deck.commander
-            ORDER BY COUNT(deck.commander) DESC
-        ) AS commander_stats ON card.oracle_id = commander_stats.commander
-        ",
-        slug
-    )
-    .fetch_all(&pool)
-    .await
-    .expect("couldn't fetch commanders");
-    Json(res)
 }
