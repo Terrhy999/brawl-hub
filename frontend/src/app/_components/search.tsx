@@ -111,7 +111,6 @@ function useOutsideSearchHandler(ref: any, callback: () => void) {
     function handleClickOutside(event: any) {
       if (ref.current && !ref.current.contains(event.target)) {
         callback()
-        console.log('You clicked outside of me!')
       }
     }
 
