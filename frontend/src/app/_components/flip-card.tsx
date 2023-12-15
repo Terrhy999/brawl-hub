@@ -1,51 +1,69 @@
 'use client'
-
-import Image from 'next/image'
-import { Card } from './card-grid'
+import { Card, CardImage } from './card-grid'
 import { useState } from 'react'
 import Link from 'next/link'
 
-export function FlipCard({
+export function HyperLinkedFlipCard({
   card,
-  className = '',
-  size = 'normal',
+  linkTo,
 }: {
   card: Card
+  linkTo: 'card' | 'commander'
   className?: string
-  size?: 'normal' | 'large'
 }) {
-  const width = size === 'normal' ? 244 : 336
-  const height = size === 'normal' ? 340 : 468
   let [isFlipped, setFlipped] = useState(false)
   return (
     <div className="relative">
-      <Link href={`/commander/${card.slug}`}>
+      <Link href={`/${linkTo}/${card.slug}`}>
         <div
-          className={`relative [transform-style:preserve-3d] [transition:transform_1s] ${
+          className={`[transform-style:preserve-3d] [transition:transform_1s] ${
             isFlipped ? '[transform:rotateY(-180deg)]' : ''
           }`}
         >
           <div className={`[backface-visibility:hidden] relative z-10 [transform:rotateY(0deg)]`}>
-            <Image
-              className={`rounded-[5%] ${className}`}
-              src={size === 'normal' ? card.image_normal : card.image_large}
-              alt={card.name_full}
-              width={width}
-              height={height}
-            />
+            <CardImage card={card} />
           </div>
           <div className="absolute top-0 [backface-visibility:hidden] [transform:rotateY(180deg)]">
-            <Image
-              className={`rounded-[5%] ${className}`}
-              src={size === 'normal' ? card?.image_normal_back ?? '' : card?.image_large_back ?? ''}
-              alt={card.name_full}
-              width={width}
-              height={height}
-              hidden={card?.image_normal_back == null}
-            />
+            <CardImage card={card} cardFace="back" />
           </div>
         </div>
       </Link>
+      <button
+        className="absolute top-[30%] right-[9%] border-2 rounded-full bg-white opacity-70 border-black p-1"
+        onClick={() => {
+          setFlipped(!isFlipped)
+        }}
+      >
+        <FlipSvg />
+      </button>
+    </div>
+  )
+}
+
+export function FlipCard({
+  card,
+  size = 'normal',
+  className,
+}: {
+  card: Card
+  size: 'normal' | 'large'
+  className?: string
+}) {
+  let [isFlipped, setFlipped] = useState(false)
+  return (
+    <div className="relative w-[336px]">
+      <div
+        className={`[transform-style:preserve-3d] [transition:transform_1s] ${
+          isFlipped ? '[transform:rotateY(-180deg)]' : ''
+        } `}
+      >
+        <div className="[backface-visibility:hidden] relative z-10 [transform:rotateY(0deg)]">
+          <CardImage card={card} className={className} size={size} />
+        </div>
+        <div className="absolute top-0 [backface-visibility:hidden] [transform:rotateY(180deg)]">
+          <CardImage card={card} className={className} size={size} cardFace="back" />
+        </div>
+      </div>
       <button
         className="absolute top-[30%] right-[9%] border-2 rounded-full bg-white opacity-70 border-black p-1"
         onClick={() => {

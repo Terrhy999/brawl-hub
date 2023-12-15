@@ -14,7 +14,7 @@ export function CardPage({ card, children }: { card: CardSlug; children: React.R
         style={{ ['--image-url' as any]: `url(${card.image_art_crop})` }}
         className={`absolute blur-md bg-cover w-full h-[442px] bg-[image:var(--image-url)]`}
       ></div>
-      <div className="text-center z-40 relative">
+      <div className="text-center z-40 relative flex flex-col items-center">
         {/* <h2 className="text-4xl">{card.name}</h2> */}
         <Card className="mx-auto my-2" card={card} size="large" />
         {/* <div>
