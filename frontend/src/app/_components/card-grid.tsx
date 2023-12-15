@@ -1,5 +1,6 @@
 import Image from 'next/image'
 import Link from 'next/link'
+import { FlipCard } from './flip-card'
 
 export type Card = {
   oracle_id: string
@@ -31,11 +32,11 @@ export type Card = {
   image_large: string
   image_art_crop: string
   image_border_crop: string
-  image_small_back: string | null
-  image_normal_back: string | null
-  image_large_back: string | null
-  image_art_crop_back: string | null
-  image_border_crop_back: string | null
+  image_small_back?: string | null
+  image_normal_back?: string | null
+  image_large_back?: string | null
+  image_art_crop_back?: string | null
+  image_border_crop_back?: string | null
   count?: number | null
 }
 
@@ -46,20 +47,13 @@ export default async function CardGrid({
 }: {
   cards: Card[]
   linkTo?: 'commander' | 'card'
-  // figure out how to type this properly so the user knows it can take (card: Card, i: number)
-  // but also keep it generic enough that it doesnt need to
-  // children?: (card: Card, i: number) => React.ReactNode
   children?: (...args: any[]) => React.ReactNode
 }) {
   return (
     <div className="grid gap-y-5 grid-cols-[repeat(auto-fill,minmax(245px,1fr))]">
       {cards.map((card, i) => (
         <div key={i}>
-          <Link href={`/${linkTo}/${card.slug}`}>
-            <div className="flex flex-col items-center">
-              <Card card={card} />
-            </div>
-          </Link>
+          <div className="flex flex-col items-center">{renderCard(card, linkTo)}</div>
           {children != undefined ? children(card, i) : undefined}
         </div>
       ))}
@@ -104,4 +98,15 @@ function CardText(card: Card, i: number): React.ReactNode {
       <div>{card.count} decks</div>
     </div>
   )
+}
+
+function renderCard(card: Card, linkTo: 'commander' | 'card') {
+  if (card?.image_normal_back == null) {
+    return (
+      <Link href={`/${linkTo}/${card.slug}`}>
+        <Card card={card} />
+      </Link>
+    )
+  }
+  return <FlipCard card={card} />
 }
