@@ -85,7 +85,16 @@ export function CardImage({ card, className = '', size = 'normal', cardFace = 'f
   if (cardFace === 'back') {
     src = size === 'normal' ? card?.image_normal_back ?? '' : card?.image_large_back ?? ''
   }
-  return <Image className={`rounded-[5%] ${className}`} src={src} alt={card.name_full} width={width} height={height} />
+  return (
+    // Maybe revert thsi full with later, just trying it out
+    <Image
+      className={`rounded-[5%] w-full ${className}`}
+      src={src}
+      alt={card.name_full}
+      width={width}
+      height={height}
+    />
+  )
 }
 
 function CardText(card: Card, i: number): React.ReactNode {
