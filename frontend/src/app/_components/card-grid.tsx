@@ -100,11 +100,9 @@ function CardText(card: Card, i: number): React.ReactNode {
 function renderHyperlinkedCard(card: Card, linkTo: LinkTarget) {
   if (card?.image_normal_back == null) {
     return (
-      <div className="relative">
-        <Link href={`/${linkTo}/${card.slug}`}>
-          <Card card={card} />
-        </Link>
-      </div>
+      <Link href={`/${linkTo}/${card.slug}`}>
+        <Card card={card} />
+      </Link>
     )
   }
   return <HyperLinkedFlipCard card={card} linkTo={linkTo} />
