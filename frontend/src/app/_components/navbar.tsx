@@ -14,7 +14,7 @@ export function NavBar() {
         <Link href={'/'} className="md:hidden">
           BH
         </Link>
-        <MagnifyingGlass className="ml-2" />
+        <MagnifyingGlass className="ml-2 hidden sm:block" />
         <div className="h-full w-full ml-2">
           <Search
             className="bg-header-color w-full h-full"
@@ -73,7 +73,7 @@ function MagnifyingGlass({ className }: { className: string }) {
       viewBox="0 0 24 24"
       strokeWidth="1.5"
       stroke="currentColor"
-      className={`w-[32px] ${className}`}
+      className={`w-[20px] ${className}`}
     >
       <path
         strokeLinecap="round"
