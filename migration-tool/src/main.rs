@@ -1,4 +1,4 @@
-#![allow(unused)]
+// #![allow(unused)]
 // use postgres::{Client, NoTls};
 use serde::{Deserialize, Serialize};
 use slug::slugify;
@@ -19,7 +19,7 @@ async fn main() {
         .await
         .expect("couldn't connect to db");
 
-    // let decks = get_aetherhub_decks(0, 50).await;
+    // let decks = get_aetherhub_decks(0, 500).await;
     // for deck in decks {
     //     migrate_aetherhub_decklists(&pool, &deck).await
     // }
@@ -44,10 +44,24 @@ async fn migrate_scryfall_alchemy_cards(pool: &Pool<Postgres>) {
         }
     }
 
+    let unwanted_layouts = [
+        "token",
+        "flip",
+        "planar",
+        "scheme",
+        "vanguard",
+        "double_faced_token",
+        "emblem",
+        "augment",
+        "host",
+        "art_series",
+        "reversible_card"
+    ];
+
     let scryfall_cards: Vec<ScryfallCard> = scryfall_cards
         .into_iter()
         .filter(|card| {
-            card.games().contains(&String::from("arena"))})
+            card.games().contains(&String::from("arena")) && !unwanted_layouts.contains(&card.layout().as_str())})
         .collect();
 
     let mut unique_scryfall_cards: HashMap<String, ScryfallCard> = HashMap::new();
