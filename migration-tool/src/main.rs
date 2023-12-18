@@ -19,11 +19,11 @@ async fn main() {
         .await
         .expect("couldn't connect to db");
 
-    let decks = get_aetherhub_decks(0, 50).await;
-    for deck in decks {
-        migrate_aetherhub_decklists(&pool, &deck).await
-    }
-    // migrate_scryfall_alchemy_cards(&pool).await;
+    // let decks = get_aetherhub_decks(0, 50).await;
+    // for deck in decks {
+    //     migrate_aetherhub_decklists(&pool, &deck).await
+    // }
+    migrate_scryfall_alchemy_cards(&pool).await;
 }
 
 async fn migrate_scryfall_alchemy_cards(pool: &Pool<Postgres>) {
@@ -31,16 +31,31 @@ async fn migrate_scryfall_alchemy_cards(pool: &Pool<Postgres>) {
     let scryfall_cards: Vec<ScryfallCard> =
         serde_json::from_str(&data).expect("unable to parse JSON");
 
+    // rarity order: common < uncommon < rare < mythic
+    fn is_lower_rarity(current: &str, new: &str) -> bool {
+        match (current, new) {
+            ("common", _) => false,
+            ("uncommon", "common") => true,
+            ("uncommon", _) => false,
+            ("rare", "common") | ("rare", "uncommon") => true,
+            ("rare", _) => false,
+            ("mythic", "rare") | ("mythic", "uncommon") | ("mythic" , "common") => true,
+            _ => false
+        }
+    }
+
     let scryfall_cards: Vec<ScryfallCard> = scryfall_cards
         .into_iter()
-        .filter(|card| card.games().contains(&String::from("arena")))
+        .filter(|card| {
+            card.games().contains(&String::from("arena"))})
         .collect();
 
     let mut unique_scryfall_cards: HashMap<String, ScryfallCard> = HashMap::new();
 
-    scryfall_cards.into_iter().for_each(|card| {
+    scryfall_cards.into_iter().for_each(|mut card| {
+        card.set_lowest_rarity(card.rarity());
+        if card.rarity() != card.lowest_rarity() {println!("rarities don't match");}
         let (oracle_id, released_at) = (card.oracle_id(), card.released_at());
-
         let new_released_at = released_at;
 
         unique_scryfall_cards
@@ -49,6 +64,12 @@ async fn migrate_scryfall_alchemy_cards(pool: &Pool<Postgres>) {
                 if existing_card.released_at() < new_released_at {
                     *existing_card = card.clone();
                 }
+
+                // Update lowest_rarity if it's empty or the new card has a lower rarity
+            if is_lower_rarity(&existing_card.lowest_rarity(), &card.rarity()) {
+                existing_card.set_lowest_rarity(card.rarity());
+            }            
+
             })
             .or_insert(card);
     });
@@ -81,10 +102,10 @@ async fn migrate_scryfall_alchemy_cards(pool: &Pool<Postgres>) {
         .collect();
 
     for card in cards {
-        println!(
-            "Insert {}, {} into brawlhub.card",
-            card.name_full, card.oracle_id
-        );
+        // println!(
+        //     "Insert {}, {} into brawlhub.card",
+        //     card.name_full, card.oracle_id
+        // );
         sqlx::query_as!(
             Card,
             "INSERT INTO card(
@@ -121,10 +142,11 @@ async fn migrate_scryfall_alchemy_cards(pool: &Pool<Postgres>) {
             image_normal_back,
             image_large_back,
             image_art_crop_back,
-            image_border_crop_back
+            image_border_crop_back,
+            lowest_rarity
         )
         VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34)
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35)
         ",
         Uuid::parse_str(&card.oracle_id).expect("Parse uuid from oracle_id string"),
         card.name_full,
@@ -160,6 +182,7 @@ async fn migrate_scryfall_alchemy_cards(pool: &Pool<Postgres>) {
         card.image_large_back,
         card.image_art_crop_back,
         card.image_border_crop_back,
+        card.lowest_rarity,
         )
         .execute(pool)
         .await
@@ -630,9 +653,10 @@ struct Card {
     image_large_back: Option<String>,
     image_art_crop_back: Option<String>,
     image_border_crop_back: Option<String>,
+    lowest_rarity: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive( Deserialize, Debug, Clone)]
 #[serde(tag = "layout", rename_all = "snake_case")]
 enum ScryfallCard {
     Normal(Normal),
@@ -660,6 +684,10 @@ enum ScryfallCard {
     ReversibleCard(ReversibleCard),
 }
 
+fn default_lowest_rarity() -> String {
+    "".to_string()
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct Normal {
     lang: String,
@@ -680,6 +708,8 @@ struct Normal {
     legalities: Legalities,
     set_type: String,
     promo_types: Option<Vec<String>>,
+    #[serde(skip_deserializing, default = "default_lowest_rarity")]
+    lowest_rarity: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -703,6 +733,8 @@ struct Split {
     set_type: String,
     card_faces: Vec<SplitFace>,
     promo_types: Option<Vec<String>>,
+    #[serde(skip_deserializing, default = "default_lowest_rarity")]
+    lowest_rarity: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -726,6 +758,8 @@ struct Flip {
     set_type: String,
     card_faces: Vec<FlipFace>,
     promo_types: Option<Vec<String>>,
+    #[serde(skip_deserializing, default = "default_lowest_rarity")]
+    lowest_rarity: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -749,6 +783,8 @@ struct Transform {
     set_type: String,
     card_faces: Vec<TransformFace>,
     promo_types: Option<Vec<String>>,
+    #[serde(skip_deserializing, default = "default_lowest_rarity")]
+    lowest_rarity: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -772,6 +808,8 @@ struct ModalDFC {
     set_type: String,
     card_faces: Vec<ModalDFCFace>,
     promo_types: Option<Vec<String>>,
+    #[serde(skip_deserializing, default = "default_lowest_rarity")]
+    lowest_rarity: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -796,6 +834,8 @@ struct Meld {
     all_parts: Vec<MeldPart>,
     id: String,
     promo_types: Option<Vec<String>>,
+    #[serde(skip_deserializing, default = "default_lowest_rarity")]
+    lowest_rarity: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -819,6 +859,8 @@ struct Adventure {
     set_type: String,
     card_faces: Vec<AdventureFace>,
     promo_types: Option<Vec<String>>,
+    #[serde(skip_deserializing, default = "default_lowest_rarity")]
+    lowest_rarity: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -842,6 +884,8 @@ struct DoubleFacedToken {
     set_type: String,
     card_faces: Vec<DoubleFacedTokenFace>,
     promo_types: Option<Vec<String>>,
+    #[serde(skip_deserializing, default = "default_lowest_rarity")]
+    lowest_rarity: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -865,6 +909,8 @@ struct ArtSeries {
     set_type: String,
     card_faces: Vec<ArtSeriesFace>,
     promo_types: Option<Vec<String>>,
+    #[serde(skip_deserializing, default = "default_lowest_rarity")]
+    lowest_rarity: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -888,6 +934,8 @@ struct ReversibleCard {
     set_type: String,
     card_faces: Vec<ReversibleCardFace>,
     promo_types: Option<Vec<String>>,
+    #[serde(skip_deserializing, default = "default_lowest_rarity")]
+    lowest_rarity: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -1005,7 +1053,10 @@ trait ScryfallCardProperties {
     fn layout(&self) -> String;
     // fn is_legal(&self) -> bool;
     // fn slug(&self) -> String;
-    fn to_card(&self) -> Card;
+    // fn to_card(&self) -> Card;
+    fn rarity(&self) -> String;
+    fn lowest_rarity(&self) -> String;
+    fn set_lowest_rarity(&mut self, new_lowest_rarity: String);
 }
 
 // fn split_name(name: &str) -> (String, String) {
@@ -1045,6 +1096,7 @@ fn strip_alchemy_prefix(name: &str) -> String {
         name.to_string()
     }
 }
+
 
 impl ScryfallCardProperties for ScryfallCard {
     fn name(&self) -> String {
@@ -1184,26 +1236,26 @@ impl ScryfallCardProperties for ScryfallCard {
 
     fn layout(&self) -> String {
         match self {
-            ScryfallCard::Normal(normal) => normal.layout(),
+            ScryfallCard::Normal(normal) => "normal".to_string(),
             ScryfallCard::Split(split) => split.layout(),
             ScryfallCard::Flip(flip) => flip.layout(),
             ScryfallCard::Transform(transform) => transform.layout(),
             ScryfallCard::ModalDFC(modal_dfc) => modal_dfc.layout(),
             ScryfallCard::Meld(meld) => meld.layout(),
-            ScryfallCard::Leveler(normal) => normal.layout(),
-            ScryfallCard::Class(normal) => normal.layout(),
-            ScryfallCard::Saga(normal) => normal.layout(),
+            ScryfallCard::Leveler(normal) => "leveler".to_string(),
+            ScryfallCard::Class(normal) => "class".to_string(),
+            ScryfallCard::Saga(normal) => "saga".to_string(),
             ScryfallCard::Adventure(adventure) => adventure.layout(),
-            ScryfallCard::Mutate(normal) => normal.layout(),
-            ScryfallCard::Prototype(normal) => normal.layout(),
-            ScryfallCard::Planar(normal) => normal.layout(),
-            ScryfallCard::Scheme(normal) => normal.layout(),
-            ScryfallCard::Vanguard(normal) => normal.layout(),
-            ScryfallCard::Token(normal) => normal.layout(),
+            ScryfallCard::Mutate(normal) => "mutate".to_string(),
+            ScryfallCard::Prototype(normal) => "prototype".to_string(),
+            ScryfallCard::Planar(normal) => "planar".to_string(),
+            ScryfallCard::Scheme(normal) => "scheme".to_string(),
+            ScryfallCard::Vanguard(normal) => "vanguard".to_string(),
+            ScryfallCard::Token(normal) => "token".to_string(),
             ScryfallCard::DoubleFacedToken(double_faced_token) => double_faced_token.layout(),
-            ScryfallCard::Emblem(normal) => normal.layout(),
-            ScryfallCard::Augment(normal) => normal.layout(),
-            ScryfallCard::Host(normal) => normal.layout(),
+            ScryfallCard::Emblem(normal) => "emblem".to_string(),
+            ScryfallCard::Augment(normal) => "augment".to_string(),
+            ScryfallCard::Host(normal) => "host".to_string(),
             ScryfallCard::ArtSeries(art_series) => art_series.layout(),
             ScryfallCard::ReversibleCard(reversible_card) => reversible_card.layout(),
         }
@@ -1238,130 +1290,99 @@ impl ScryfallCardProperties for ScryfallCard {
         }
     }
 
-    // fn strip_alchemy_prefix(&self) -> String {
-    //     match self {
-    //         ScryfallCard::Normal(normal) => normal.strip_alchemy_prefix(),
-    //         ScryfallCard::Split(split) => split.strip_alchemy_prefix(),
-    //         ScryfallCard::Flip(flip) => flip.strip_alchemy_prefix(),
-    //         ScryfallCard::Transform(transform) => transform.strip_alchemy_prefix(),
-    //         ScryfallCard::ModalDFC(modal_dfc) => modal_dfc.strip_alchemy_prefix(),
-    //         ScryfallCard::Meld(meld) => meld.strip_alchemy_prefix(),
-    //         ScryfallCard::Leveler(normal) => normal.strip_alchemy_prefix(),
-    //         ScryfallCard::Class(normal) => normal.strip_alchemy_prefix(),
-    //         ScryfallCard::Saga(normal) => normal.strip_alchemy_prefix(),
-    //         ScryfallCard::Adventure(adventure) => adventure.strip_alchemy_prefix(),
-    //         ScryfallCard::Mutate(normal) => normal.strip_alchemy_prefix(),
-    //         ScryfallCard::Prototype(normal) => normal.strip_alchemy_prefix(),
-    //         ScryfallCard::Planar(normal) => normal.strip_alchemy_prefix(),
-    //         ScryfallCard::Scheme(normal) => normal.strip_alchemy_prefix(),
-    //         ScryfallCard::Vanguard(normal) => normal.strip_alchemy_prefix(),
-    //         ScryfallCard::Token(normal) => normal.strip_alchemy_prefix(),
-    //         ScryfallCard::DoubleFacedToken(double_faced_token) => {
-    //             double_faced_token.strip_alchemy_prefix()
-    //         }
-    //         ScryfallCard::Emblem(normal) => normal.strip_alchemy_prefix(),
-    //         ScryfallCard::Augment(normal) => normal.strip_alchemy_prefix(),
-    //         ScryfallCard::Host(normal) => normal.strip_alchemy_prefix(),
-    //         ScryfallCard::ArtSeries(art_series) => art_series.strip_alchemy_prefix(),
-    //         ScryfallCard::ReversibleCard(reversible_card) => reversible_card.strip_alchemy_prefix(),
-    //     }
-    // }
-
-    fn to_card(&self) -> Card {
+    fn rarity(&self) -> String {
         match self {
-            ScryfallCard::Normal(card) => card.to_card(),
-            ScryfallCard::Split(card) => card.to_card(),
-            ScryfallCard::Flip(card) => card.to_card(),
-            ScryfallCard::Transform(card) => card.to_card(),
-            ScryfallCard::ModalDFC(card) => card.to_card(),
-            ScryfallCard::Meld(card) => card.to_card(),
-            ScryfallCard::Leveler(card) => card.to_card(),
-            ScryfallCard::Class(card) => card.to_card(),
-            ScryfallCard::Saga(card) => card.to_card(),
-            ScryfallCard::Adventure(card) => card.to_card(),
-            ScryfallCard::Mutate(card) => card.to_card(),
-            ScryfallCard::Prototype(card) => card.to_card(),
-            ScryfallCard::Planar(card) => card.to_card(),
-            ScryfallCard::Scheme(card) => card.to_card(),
-            ScryfallCard::Vanguard(card) => card.to_card(),
-            ScryfallCard::Token(card) => card.to_card(),
-            ScryfallCard::DoubleFacedToken(card) => card.to_card(),
-            ScryfallCard::Emblem(card) => card.to_card(),
-            ScryfallCard::Augment(card) => card.to_card(),
-            ScryfallCard::Host(card) => card.to_card(),
-            ScryfallCard::ArtSeries(card) => card.to_card(),
-            ScryfallCard::ReversibleCard(card) => card.to_card(),
+            ScryfallCard::Normal(normal) => normal.rarity(),
+            ScryfallCard::Split(split) => split.rarity(),
+            ScryfallCard::Flip(flip) => flip.rarity(),
+            ScryfallCard::Transform(transform) => transform.rarity(),
+            ScryfallCard::ModalDFC(modal_dfc) => modal_dfc.rarity(),
+            ScryfallCard::Meld(meld) => meld.rarity(),
+            ScryfallCard::Leveler(normal) => normal.rarity(),
+            ScryfallCard::Class(normal) => normal.rarity(),
+            ScryfallCard::Saga(normal) => normal.rarity(),
+            ScryfallCard::Adventure(adventure) => adventure.rarity(),
+            ScryfallCard::Mutate(normal) => normal.rarity(),
+            ScryfallCard::Prototype(normal) => normal.rarity(),
+            ScryfallCard::Planar(normal) => normal.rarity(),
+            ScryfallCard::Scheme(normal) => normal.rarity(),
+            ScryfallCard::Vanguard(normal) => normal.rarity(),
+            ScryfallCard::Token(normal) => normal.rarity(),
+            ScryfallCard::DoubleFacedToken(double_faced_token) => double_faced_token.rarity(),
+            ScryfallCard::Emblem(normal) => normal.rarity(),
+            ScryfallCard::Augment(normal) => normal.rarity(),
+            ScryfallCard::Host(normal) => normal.rarity(),
+            ScryfallCard::ArtSeries(art_series) => art_series.rarity(),
+            ScryfallCard::ReversibleCard(reversible_card) => reversible_card.rarity(),
         }
     }
+
+    fn lowest_rarity(&self) -> String {
+        match self {
+            ScryfallCard::Normal(normal) => normal.lowest_rarity(),
+            ScryfallCard::Split(split) => split.lowest_rarity(),
+            ScryfallCard::Flip(flip) => flip.lowest_rarity(),
+            ScryfallCard::Transform(transform) => transform.lowest_rarity(),
+            ScryfallCard::ModalDFC(modal_dfc) => modal_dfc.lowest_rarity(),
+            ScryfallCard::Meld(meld) => meld.lowest_rarity(),
+            ScryfallCard::Leveler(normal) => normal.lowest_rarity(),
+            ScryfallCard::Class(normal) => normal.lowest_rarity(),
+            ScryfallCard::Saga(normal) => normal.lowest_rarity(),
+            ScryfallCard::Adventure(adventure) => adventure.lowest_rarity(),
+            ScryfallCard::Mutate(normal) => normal.lowest_rarity(),
+            ScryfallCard::Prototype(normal) => normal.lowest_rarity(),
+            ScryfallCard::Planar(normal) => normal.lowest_rarity(),
+            ScryfallCard::Scheme(normal) => normal.lowest_rarity(),
+            ScryfallCard::Vanguard(normal) => normal.lowest_rarity(),
+            ScryfallCard::Token(normal) => normal.lowest_rarity(),
+            ScryfallCard::DoubleFacedToken(double_faced_token) => double_faced_token.lowest_rarity(),
+            ScryfallCard::Emblem(normal) => normal.lowest_rarity(),
+            ScryfallCard::Augment(normal) => normal.lowest_rarity(),
+            ScryfallCard::Host(normal) => normal.lowest_rarity(),
+            ScryfallCard::ArtSeries(art_series) => art_series.lowest_rarity(),
+            ScryfallCard::ReversibleCard(reversible_card) => reversible_card.lowest_rarity(),
+        }
+    }
+
+    fn set_lowest_rarity(&mut self, new_lowest_rarity: String) {
+        match self {
+            ScryfallCard::Normal(normal) => normal.set_lowest_rarity(new_lowest_rarity),
+            ScryfallCard::Split(split) => split.set_lowest_rarity(new_lowest_rarity),
+            ScryfallCard::Flip(flip) => flip.set_lowest_rarity(new_lowest_rarity),
+            ScryfallCard::Transform(transform) => transform.set_lowest_rarity(new_lowest_rarity),
+            ScryfallCard::ModalDFC(modal_dfc) => modal_dfc.set_lowest_rarity(new_lowest_rarity),
+            ScryfallCard::Meld(meld) => meld.set_lowest_rarity(new_lowest_rarity),
+            ScryfallCard::Leveler(normal) => normal.set_lowest_rarity(new_lowest_rarity),
+            ScryfallCard::Class(normal) => normal.set_lowest_rarity(new_lowest_rarity),
+            ScryfallCard::Saga(normal) => normal.set_lowest_rarity(new_lowest_rarity),
+            ScryfallCard::Adventure(adventure) => adventure.set_lowest_rarity(new_lowest_rarity),
+            ScryfallCard::Mutate(normal) => normal.set_lowest_rarity(new_lowest_rarity),
+            ScryfallCard::Prototype(normal) => normal.set_lowest_rarity(new_lowest_rarity),
+            ScryfallCard::Planar(normal) => normal.set_lowest_rarity(new_lowest_rarity),
+            ScryfallCard::Scheme(normal) => normal.set_lowest_rarity(new_lowest_rarity),
+            ScryfallCard::Vanguard(normal) => normal.set_lowest_rarity(new_lowest_rarity),
+            ScryfallCard::Token(normal) => normal.set_lowest_rarity(new_lowest_rarity),
+            ScryfallCard::DoubleFacedToken(double_faced_token) => double_faced_token.set_lowest_rarity(new_lowest_rarity),
+            ScryfallCard::Emblem(normal) => normal.set_lowest_rarity(new_lowest_rarity),
+            ScryfallCard::Augment(normal) => normal.set_lowest_rarity(new_lowest_rarity),
+            ScryfallCard::Host(normal) => normal.set_lowest_rarity(new_lowest_rarity),
+            ScryfallCard::ArtSeries(art_series) => art_series.set_lowest_rarity(new_lowest_rarity),
+            ScryfallCard::ReversibleCard(reversible_card) => reversible_card.set_lowest_rarity(new_lowest_rarity),
+        }
+    }
+
 }
 
 impl ScryfallCardProperties for Normal {
-    fn to_card(&self) -> Card {
-        Card {
-            oracle_id: self.oracle_id(),
-            slug: slug(&self.name()),
-            name_full: strip_alchemy_prefix(&self.name()),
-            name_front: strip_alchemy_prefix(&self.name()),
-            name_back: None,
-            lang: self.lang.clone(),
-            scryfall_uri: self.scryfall_uri.clone(),
-            layout: self.layout(),
-            mana_cost_combined: None,
-            mana_cost_front: self.mana_cost.clone(),
-            mana_cost_back: None,
-            cmc: self.cmc,
-            type_line_full: self.type_line.clone(),
-            type_line_front: self.type_line.clone(),
-            type_line_back: None,
-            oracle_text: self.oracle_text.clone(),
-            oracle_text_back: None,
-            colors: self.colors.clone(),
-            colors_back: None,
-            color_identity: self.color_identity.clone(),
-            is_legal: self.legalities.historicbrawl == "legal",
-            is_legal_commander: is_legal_commander(&self.type_line),
-            is_rebalanced: self.is_rebalanced(),
-            rarity: self.rarity.clone(),
-            image_small: self.image_uris.small.clone(),
-            image_normal: self.image_uris.normal.clone(),
-            image_large: self.image_uris.large.clone(),
-            image_art_crop: self.image_uris.art_crop.clone(),
-            image_border_crop: self.image_uris.border_crop.clone(),
-            image_small_back: None,
-            image_normal_back: None,
-            image_large_back: None,
-            image_art_crop_back: None,
-            image_border_crop_back: None,
-        }
+
+    fn set_lowest_rarity(&mut self, new_lowest_rarity: String) {
+        self.lowest_rarity = new_lowest_rarity;
     }
 
+    // this is not accurate, lots of variants share the 'Normal' type but their layout is not 'normal'
     fn layout(&self) -> String {
         "normal".to_string()
     }
-
-    // fn strip_alchemy_prefix(&self) -> String {
-    //     if self.name.starts_with("A-") {
-    //         if self.name.contains("//") {
-    //             self.name
-    //                 .split(" // ")
-    //                 .collect::<Vec<&str>>()
-    //                 .iter()
-    //                 .map(|c| {
-    //                     c.strip_prefix("A-")
-    //                         .expect("Strip 'A-' prefix from split card")
-    //                 })
-    //                 .collect::<Vec<&str>>()
-    //                 .join(" // ")
-    //         } else {
-    //             self.name
-    //                 .strip_prefix("A-")
-    //                 .expect("Strip A- prefix")
-    //                 .to_string()
-    //         }
-    //     } else {
-    //         self.name.to_string()
-    //     }
-    // }
 
     fn is_rebalanced(&self) -> bool {
         if self.promo_types.is_some() {
@@ -1393,45 +1414,27 @@ impl ScryfallCardProperties for Normal {
     fn released_at(&self) -> &NaiveDate {
         &self.released_at
     }
+
+    fn rarity(&self) -> String {
+        self.rarity.clone()
+    }
+
+    fn lowest_rarity(&self) -> String {
+        self.lowest_rarity.clone()
+    }
 }
 impl ScryfallCardProperties for Split {
-    fn to_card(&self) -> Card {
-        Card {
-            oracle_id: self.oracle_id(),
-            slug: slug(&self.name()),
-            name_full: strip_alchemy_prefix(&self.name()),
-            name_front: strip_alchemy_prefix(&self.card_faces[0].name),
-            name_back: Some(strip_alchemy_prefix(&self.card_faces[1].name)),
-            lang: self.lang.clone(),
-            scryfall_uri: self.scryfall_uri.clone(),
-            layout: self.layout(),
-            mana_cost_combined: self.mana_cost.clone(),
-            mana_cost_front: Some(self.card_faces[0].mana_cost.clone()),
-            mana_cost_back: Some(self.card_faces[1].mana_cost.clone()),
-            cmc: self.cmc,
-            type_line_full: self.type_line.clone(),
-            type_line_front: self.card_faces[0].type_line.clone(),
-            type_line_back: Some(self.card_faces[1].type_line.clone()),
-            oracle_text: Some(self.card_faces[0].oracle_text.clone()),
-            oracle_text_back: Some(self.card_faces[1].oracle_text.clone()),
-            colors: self.colors.clone(),
-            colors_back: None,
-            color_identity: self.color_identity.clone(),
-            is_legal: self.legalities.historicbrawl == "legal",
-            is_legal_commander: is_legal_commander(&self.type_line),
-            is_rebalanced: self.is_rebalanced(),
-            rarity: self.rarity.clone(),
-            image_small: self.image_uris.small.clone(),
-            image_normal: self.image_uris.normal.clone(),
-            image_large: self.image_uris.large.clone(),
-            image_art_crop: self.image_uris.art_crop.clone(),
-            image_border_crop: self.image_uris.border_crop.clone(),
-            image_small_back: None,
-            image_normal_back: None,
-            image_large_back: None,
-            image_art_crop_back: None,
-            image_border_crop_back: None,
-        }
+
+    fn set_lowest_rarity(&mut self, new_lowest_rarity: String) {
+        self.lowest_rarity = new_lowest_rarity;
+    }
+
+    fn rarity(&self) -> String {
+        self.rarity.clone()
+    }
+
+    fn lowest_rarity(&self) -> String {
+        self.lowest_rarity.clone()
     }
 
     fn layout(&self) -> String {
@@ -1470,48 +1473,24 @@ impl ScryfallCardProperties for Split {
     }
 }
 impl ScryfallCardProperties for Flip {
+
+    fn set_lowest_rarity(&mut self, new_lowest_rarity: String) {
+        self.lowest_rarity = new_lowest_rarity;
+    }
+
+    fn rarity(&self) -> String {
+        self.rarity.clone()
+    }
+
+    fn lowest_rarity(&self) -> String {
+        self.lowest_rarity.clone()
+    }
+
     fn oracle_id(&self) -> String {
         self.oracle_id.clone()
     }
 
-    fn to_card(&self) -> Card {
-        Card {
-            oracle_id: self.oracle_id(),
-            slug: slug(&self.name()),
-            name_full: strip_alchemy_prefix(&self.name()),
-            name_front: strip_alchemy_prefix(&self.card_faces[0].name),
-            name_back: Some(strip_alchemy_prefix(&self.card_faces[1].name)),
-            lang: self.lang.clone(),
-            scryfall_uri: self.scryfall_uri.clone(),
-            layout: self.layout(),
-            mana_cost_combined: None,
-            mana_cost_front: self.mana_cost.clone(),
-            mana_cost_back: None,
-            cmc: self.cmc,
-            type_line_full: self.type_line.clone(),
-            type_line_front: self.card_faces[0].type_line.clone(),
-            type_line_back: Some(self.card_faces[1].type_line.clone()),
-            oracle_text: Some(self.card_faces[0].oracle_text.clone()),
-            oracle_text_back: Some(self.card_faces[1].oracle_text.clone()),
-            colors: self.colors.clone(),
-            colors_back: self.colors.clone(),
-            color_identity: self.color_identity.clone(),
-            is_legal: self.legalities.historicbrawl == "legal",
-            is_legal_commander: is_legal_commander(&self.type_line),
-            is_rebalanced: self.is_rebalanced(),
-            rarity: self.rarity.clone(),
-            image_small: self.image_uris.small.clone(),
-            image_normal: self.image_uris.normal.clone(),
-            image_large: self.image_uris.large.clone(),
-            image_art_crop: self.image_uris.art_crop.clone(),
-            image_border_crop: self.image_uris.border_crop.clone(),
-            image_small_back: None,
-            image_normal_back: None,
-            image_large_back: None,
-            image_art_crop_back: None,
-            image_border_crop_back: None,
-        }
-    }
+    
 
     fn layout(&self) -> String {
         "flip".to_string()
@@ -1545,48 +1524,24 @@ impl ScryfallCardProperties for Flip {
     }
 }
 impl ScryfallCardProperties for Transform {
+
+    fn set_lowest_rarity(&mut self, new_lowest_rarity: String) {
+        self.lowest_rarity = new_lowest_rarity;
+    }
+
+    fn rarity(&self) -> String {
+        self.rarity.clone()
+    }
+
+    fn lowest_rarity(&self) -> String {
+        self.lowest_rarity.clone()
+    }
+
     fn oracle_id(&self) -> String {
         self.oracle_id.clone()
     }
 
-    fn to_card(&self) -> Card {
-        Card {
-            oracle_id: self.oracle_id(),
-            slug: slug(&self.name()),
-            name_full: strip_alchemy_prefix(&self.name()),
-            name_front: strip_alchemy_prefix(&self.card_faces[0].name),
-            name_back: Some(strip_alchemy_prefix(&self.card_faces[1].name)),
-            lang: self.lang.clone(),
-            scryfall_uri: self.scryfall_uri.clone(),
-            layout: self.layout(),
-            mana_cost_combined: None,
-            mana_cost_front: Some(self.card_faces[0].mana_cost.clone()),
-            mana_cost_back: None,
-            cmc: self.cmc,
-            type_line_full: self.type_line.clone(),
-            type_line_front: self.card_faces[0].type_line.clone(),
-            type_line_back: Some(self.card_faces[1].type_line.clone()),
-            oracle_text: Some(self.card_faces[0].oracle_text.clone()),
-            oracle_text_back: Some(self.card_faces[1].oracle_text.clone()),
-            colors: self.card_faces[0].colors.clone(),
-            colors_back: self.card_faces[1].colors.clone(),
-            color_identity: self.color_identity.clone(),
-            is_legal: self.legalities.historicbrawl == "legal",
-            is_legal_commander: is_legal_commander(&self.type_line),
-            is_rebalanced: self.is_rebalanced(),
-            rarity: self.rarity.clone(),
-            image_small: self.card_faces[0].image_uris.small.clone(),
-            image_normal: self.card_faces[0].image_uris.normal.clone(),
-            image_large: self.card_faces[0].image_uris.large.clone(),
-            image_art_crop: self.card_faces[0].image_uris.art_crop.clone(),
-            image_border_crop: self.card_faces[0].image_uris.border_crop.clone(),
-            image_small_back: Some(self.card_faces[1].image_uris.small.clone()),
-            image_normal_back: Some(self.card_faces[1].image_uris.normal.clone()),
-            image_large_back: Some(self.card_faces[1].image_uris.large.clone()),
-            image_art_crop_back: Some(self.card_faces[1].image_uris.border_crop.clone()),
-            image_border_crop_back: Some(self.card_faces[1].image_uris.art_crop.clone()),
-        }
-    }
+    
 
     fn layout(&self) -> String {
         "transform".to_string()
@@ -1620,47 +1575,21 @@ impl ScryfallCardProperties for Transform {
     }
 }
 impl ScryfallCardProperties for ModalDFC {
+
+    fn set_lowest_rarity(&mut self, new_lowest_rarity: String) {
+        self.lowest_rarity = new_lowest_rarity;
+    }
+
     fn oracle_id(&self) -> String {
         self.oracle_id.clone()
     }
 
-    fn to_card(&self) -> Card {
-        Card {
-            oracle_id: self.oracle_id(),
-            slug: slug(&self.name()),
-            name_full: strip_alchemy_prefix(&self.name()),
-            name_front: strip_alchemy_prefix(&self.card_faces[0].name),
-            name_back: Some(strip_alchemy_prefix(&self.card_faces[1].name)),
-            lang: self.lang.clone(),
-            scryfall_uri: self.scryfall_uri.clone(),
-            layout: self.layout(),
-            mana_cost_combined: None,
-            mana_cost_front: Some(self.card_faces[0].mana_cost.clone()),
-            mana_cost_back: Some(self.card_faces[1].mana_cost.clone()),
-            cmc: self.cmc,
-            type_line_full: self.type_line.clone(),
-            type_line_front: self.card_faces[0].type_line.clone(),
-            type_line_back: Some(self.card_faces[1].type_line.clone()),
-            oracle_text: Some(self.card_faces[0].oracle_text.clone()),
-            oracle_text_back: Some(self.card_faces[1].oracle_text.clone()),
-            colors: self.card_faces[0].colors.clone(),
-            colors_back: self.card_faces[1].colors.clone(),
-            color_identity: self.color_identity.clone(),
-            is_legal: self.legalities.historicbrawl == "legal",
-            is_legal_commander: is_legal_commander(&self.type_line),
-            is_rebalanced: self.is_rebalanced(),
-            rarity: self.rarity.clone(),
-            image_small: self.card_faces[0].image_uris.small.clone(),
-            image_normal: self.card_faces[0].image_uris.normal.clone(),
-            image_large: self.card_faces[0].image_uris.large.clone(),
-            image_art_crop: self.card_faces[0].image_uris.art_crop.clone(),
-            image_border_crop: self.card_faces[0].image_uris.border_crop.clone(),
-            image_small_back: Some(self.card_faces[1].image_uris.small.clone()),
-            image_normal_back: Some(self.card_faces[1].image_uris.normal.clone()),
-            image_large_back: Some(self.card_faces[1].image_uris.large.clone()),
-            image_art_crop_back: Some(self.card_faces[1].image_uris.border_crop.clone()),
-            image_border_crop_back: Some(self.card_faces[1].image_uris.art_crop.clone()),
-        }
+    fn rarity(&self) -> String {
+        self.rarity.clone()
+    }
+
+    fn lowest_rarity(&self) -> String {
+        self.lowest_rarity.clone()
     }
 
     fn layout(&self) -> String {
@@ -1695,6 +1624,11 @@ impl ScryfallCardProperties for ModalDFC {
     }
 }
 impl ScryfallCardProperties for Meld {
+
+    fn set_lowest_rarity(&mut self, new_lowest_rarity: String) {
+        self.lowest_rarity = new_lowest_rarity;
+    }
+
     fn layout(&self) -> String {
         "meld".to_string()
     }
@@ -1729,54 +1663,21 @@ impl ScryfallCardProperties for Meld {
     fn oracle_id(&self) -> String {
         self.oracle_id.clone()
     }
-
-    fn to_card(&self) -> Card {
-        Card {
-            oracle_id: self.oracle_id(),
-            slug: slug(&self.name()),
-            name_full: strip_alchemy_prefix(&self.name()),
-            name_front: strip_alchemy_prefix(&self.all_parts[0].name),
-            name_back: None,
-            lang: self.lang.clone(),
-            scryfall_uri: self.scryfall_uri.clone(),
-            layout: self.layout(),
-            mana_cost_combined: None,
-            mana_cost_front: self.mana_cost.clone(),
-            mana_cost_back: None,
-            cmc: self.cmc,
-            type_line_full: self.type_line.clone(),
-            type_line_front: self.type_line.clone(),
-            type_line_back: None,
-            oracle_text: self.oracle_text.clone(),
-            oracle_text_back: None,
-            colors: self.colors.clone(),
-            colors_back: None,
-            color_identity: self.color_identity.clone(),
-            is_legal: self.legalities.historicbrawl == "legal",
-            is_legal_commander: is_legal_commander(&self.type_line)
-                && self
-                    .all_parts
-                    .iter()
-                    .find(|part| part.name == self.name())
-                    .expect("Find Meld part associated to this card")
-                    .component
-                    != "meld_result".to_string(),
-            is_rebalanced: self.is_rebalanced(),
-            rarity: self.rarity.clone(),
-            image_small: self.image_uris.small.clone(),
-            image_normal: self.image_uris.normal.clone(),
-            image_large: self.image_uris.large.clone(),
-            image_art_crop: self.image_uris.art_crop.clone(),
-            image_border_crop: self.image_uris.border_crop.clone(),
-            image_small_back: None,
-            image_normal_back: None,
-            image_large_back: None,
-            image_art_crop_back: None,
-            image_border_crop_back: None,
-        }
+    fn rarity(&self) -> String {
+        self.rarity.clone()
     }
+
+    fn lowest_rarity(&self) -> String {
+        self.lowest_rarity.clone()
+    }
+    
 }
 impl ScryfallCardProperties for Adventure {
+
+    fn set_lowest_rarity(&mut self, new_lowest_rarity: String) {
+        self.lowest_rarity = new_lowest_rarity;
+    }
+
     fn layout(&self) -> String {
         "adventure".to_string()
     }
@@ -1811,47 +1712,21 @@ impl ScryfallCardProperties for Adventure {
     fn oracle_id(&self) -> String {
         self.oracle_id.clone()
     }
-
-    fn to_card(&self) -> Card {
-        Card {
-            oracle_id: self.oracle_id(),
-            slug: slug(&self.name()),
-            name_full: strip_alchemy_prefix(&self.name()),
-            name_front: strip_alchemy_prefix(&self.card_faces[0].name),
-            name_back: Some(strip_alchemy_prefix(&self.card_faces[1].name)),
-            lang: self.lang.clone(),
-            scryfall_uri: self.scryfall_uri.clone(),
-            layout: self.layout(),
-            mana_cost_combined: self.mana_cost.clone(),
-            mana_cost_front: Some(self.card_faces[0].mana_cost.clone()),
-            mana_cost_back: Some(self.card_faces[1].mana_cost.clone()),
-            cmc: self.cmc,
-            type_line_full: self.type_line.clone(),
-            type_line_front: self.card_faces[0].type_line.clone(),
-            type_line_back: Some(self.card_faces[1].type_line.clone()),
-            oracle_text: Some(self.card_faces[0].oracle_text.clone()),
-            oracle_text_back: Some(self.card_faces[1].oracle_text.clone()),
-            colors: self.colors.clone(),
-            colors_back: None,
-            color_identity: self.color_identity.clone(),
-            is_legal: self.legalities.historicbrawl == "legal",
-            is_legal_commander: is_legal_commander(&self.card_faces[1].type_line),
-            is_rebalanced: self.is_rebalanced(),
-            rarity: self.rarity.clone(),
-            image_small: self.image_uris.small.clone(),
-            image_normal: self.image_uris.normal.clone(),
-            image_large: self.image_uris.large.clone(),
-            image_art_crop: self.image_uris.art_crop.clone(),
-            image_border_crop: self.image_uris.border_crop.clone(),
-            image_small_back: None,
-            image_normal_back: None,
-            image_large_back: None,
-            image_art_crop_back: None,
-            image_border_crop_back: None,
-        }
+    fn rarity(&self) -> String {
+        self.rarity.clone()
     }
+
+    fn lowest_rarity(&self) -> String {
+        self.lowest_rarity.clone()
+    }
+    
 }
 impl ScryfallCardProperties for ArtSeries {
+
+    fn set_lowest_rarity(&mut self, new_lowest_rarity: String) {
+        self.lowest_rarity = new_lowest_rarity;
+    }
+
     fn layout(&self) -> String {
         "art_series".to_string()
     }
@@ -1886,77 +1761,21 @@ impl ScryfallCardProperties for ArtSeries {
     fn oracle_id(&self) -> String {
         self.oracle_id.clone()
     }
-
-    fn to_card(&self) -> Card {
-        Card {
-            oracle_id: self.oracle_id(),
-            slug: slug(&self.name()),
-            name_full: strip_alchemy_prefix(&self.name()),
-            name_front: strip_alchemy_prefix(&self.card_faces[0].name),
-            name_back: Some(strip_alchemy_prefix(&self.card_faces[1].name)),
-            lang: self.lang.clone(),
-            scryfall_uri: self.scryfall_uri.clone(),
-            layout: self.layout(),
-            mana_cost_combined: None,
-            mana_cost_front: None,
-            mana_cost_back: None,
-            cmc: self.cmc,
-            type_line_full: self.type_line.clone(),
-            type_line_front: self.card_faces[0].type_line.clone(),
-            type_line_back: Some(self.card_faces[1].type_line.clone()),
-            oracle_text: Some(self.card_faces[0].oracle_text.clone()),
-            oracle_text_back: Some(self.card_faces[1].oracle_text.clone()),
-            colors: None,
-            colors_back: None,
-            color_identity: self.color_identity.clone(),
-            is_legal: false,
-            is_legal_commander: false,
-            is_rebalanced: self.is_rebalanced(),
-            rarity: self.rarity.clone(),
-            image_small: self.card_faces[0].image_uris.as_ref().map_or(
-                "https://errors.scryfall.com/missing.jpg".to_string(),
-                |uris| uris.small.clone(),
-            ),
-            image_normal: self.card_faces[0].image_uris.as_ref().map_or(
-                "https://errors.scryfall.com/missing.jpg".to_string(),
-                |uris| uris.normal.clone(),
-            ),
-            image_large: self.card_faces[0].image_uris.as_ref().map_or(
-                "https://errors.scryfall.com/missing.jpg".to_string(),
-                |uris| uris.large.clone(),
-            ),
-            image_art_crop: self.card_faces[0].image_uris.as_ref().map_or(
-                "https://errors.scryfall.com/missing.jpg".to_string(),
-                |uris| uris.art_crop.clone(),
-            ),
-            image_border_crop: self.card_faces[0].image_uris.as_ref().map_or(
-                "https://errors.scryfall.com/missing.jpg".to_string(),
-                |uris| uris.border_crop.clone(),
-            ),
-            image_small_back: Some(self.card_faces[0].image_uris.as_ref().map_or(
-                "https://errors.scryfall.com/missing.jpg".to_string(),
-                |uris| uris.small.clone(),
-            )),
-            image_normal_back: Some(self.card_faces[0].image_uris.as_ref().map_or(
-                "https://errors.scryfall.com/missing.jpg".to_string(),
-                |uris| uris.normal.clone(),
-            )),
-            image_large_back: Some(self.card_faces[0].image_uris.as_ref().map_or(
-                "https://errors.scryfall.com/missing.jpg".to_string(),
-                |uris| uris.large.clone(),
-            )),
-            image_art_crop_back: Some(self.card_faces[0].image_uris.as_ref().map_or(
-                "https://errors.scryfall.com/missing.jpg".to_string(),
-                |uris| uris.art_crop.clone(),
-            )),
-            image_border_crop_back: Some(self.card_faces[0].image_uris.as_ref().map_or(
-                "https://errors.scryfall.com/missing.jpg".to_string(),
-                |uris| uris.border_crop.clone(),
-            )),
-        }
+    fn rarity(&self) -> String {
+        self.rarity.clone()
     }
+
+    fn lowest_rarity(&self) -> String {
+        self.lowest_rarity.clone()
+    }
+    
 }
 impl ScryfallCardProperties for DoubleFacedToken {
+
+    fn set_lowest_rarity(&mut self, new_lowest_rarity: String) {
+        self.lowest_rarity = new_lowest_rarity;
+    }
+
     fn layout(&self) -> String {
         "double_faced_token".to_string()
     }
@@ -1991,47 +1810,21 @@ impl ScryfallCardProperties for DoubleFacedToken {
     fn oracle_id(&self) -> String {
         self.oracle_id.clone()
     }
-
-    fn to_card(&self) -> Card {
-        Card {
-            oracle_id: self.oracle_id(),
-            slug: slug(&self.name()),
-            name_full: strip_alchemy_prefix(&self.name()),
-            name_front: strip_alchemy_prefix(&self.card_faces[0].name),
-            name_back: Some(strip_alchemy_prefix(&self.card_faces[1].name)),
-            lang: self.lang.clone(),
-            scryfall_uri: self.scryfall_uri.clone(),
-            layout: self.layout(),
-            mana_cost_combined: None,
-            mana_cost_front: None,
-            mana_cost_back: None,
-            cmc: self.cmc,
-            type_line_full: self.type_line.clone(),
-            type_line_front: self.type_line.clone(),
-            type_line_back: Some(self.type_line.clone()),
-            oracle_text: Some(self.card_faces[0].oracle_text.clone()),
-            oracle_text_back: Some(self.card_faces[1].oracle_text.clone()),
-            colors: None,
-            colors_back: None,
-            color_identity: self.color_identity.clone(),
-            is_legal: false,
-            is_legal_commander: false,
-            is_rebalanced: self.is_rebalanced(),
-            rarity: self.rarity.clone(),
-            image_small: self.card_faces[0].image_uris.small.clone(),
-            image_normal: self.card_faces[0].image_uris.normal.clone(),
-            image_large: self.card_faces[0].image_uris.large.clone(),
-            image_art_crop: self.card_faces[0].image_uris.art_crop.clone(),
-            image_border_crop: self.card_faces[0].image_uris.border_crop.clone(),
-            image_small_back: Some(self.card_faces[1].image_uris.small.clone()),
-            image_normal_back: Some(self.card_faces[1].image_uris.normal.clone()),
-            image_large_back: Some(self.card_faces[1].image_uris.large.clone()),
-            image_art_crop_back: Some(self.card_faces[1].image_uris.border_crop.clone()),
-            image_border_crop_back: Some(self.card_faces[1].image_uris.art_crop.clone()),
-        }
+    fn rarity(&self) -> String {
+        self.rarity.clone()
     }
+
+    fn lowest_rarity(&self) -> String {
+        self.lowest_rarity.clone()
+    }
+    
 }
 impl ScryfallCardProperties for ReversibleCard {
+
+    fn set_lowest_rarity(&mut self, new_lowest_rarity: String) {
+        self.lowest_rarity = new_lowest_rarity;
+    }
+
     fn layout(&self) -> String {
         "reversible_card".to_string()
     }
@@ -2066,72 +1859,883 @@ impl ScryfallCardProperties for ReversibleCard {
     fn released_at(&self) -> &NaiveDate {
         &self.released_at
     }
-
-    fn to_card(&self) -> Card {
-        Card {
-            oracle_id: self.oracle_id(),
-            slug: slug(&self.name()),
-            name_full: strip_alchemy_prefix(&self.name()),
-            name_front: strip_alchemy_prefix(&self.card_faces[0].name),
-            name_back: Some(strip_alchemy_prefix(&self.card_faces[1].name)),
-            lang: self.lang.clone(),
-            scryfall_uri: self.scryfall_uri.clone(),
-            layout: self.layout(),
-            mana_cost_combined: None,
-            mana_cost_front: None,
-            mana_cost_back: None,
-            cmc: self.card_faces[0].cmc,
-            type_line_full: self.card_faces[0].type_line.clone(),
-            type_line_front: self.card_faces[0].type_line.clone(),
-            type_line_back: Some(self.card_faces[1].type_line.clone()),
-            oracle_text: Some(self.card_faces[0].oracle_text.clone()),
-            oracle_text_back: Some(self.card_faces[1].oracle_text.clone()),
-            colors: None,
-            colors_back: None,
-            color_identity: self.color_identity.clone(),
-            is_legal: false,
-            is_legal_commander: false,
-            is_rebalanced: self.is_rebalanced(),
-            rarity: self.rarity.clone(),
-            image_small: self.card_faces[0].image_uris.small.clone(),
-            image_normal: self.card_faces[0].image_uris.normal.clone(),
-            image_large: self.card_faces[0].image_uris.large.clone(),
-            image_art_crop: self.card_faces[0].image_uris.art_crop.clone(),
-            image_border_crop: self.card_faces[0].image_uris.border_crop.clone(),
-            image_small_back: Some(self.card_faces[1].image_uris.small.clone()),
-            image_normal_back: Some(self.card_faces[1].image_uris.normal.clone()),
-            image_large_back: Some(self.card_faces[1].image_uris.large.clone()),
-            image_art_crop_back: Some(self.card_faces[1].image_uris.border_crop.clone()),
-            image_border_crop_back: Some(self.card_faces[1].image_uris.art_crop.clone()),
-        }
+    fn rarity(&self) -> String {
+        self.rarity.clone()
     }
+
+    fn lowest_rarity(&self) -> String {
+        self.lowest_rarity.clone()
+    }
+    
 }
 
 impl From<ScryfallCard> for Card {
     fn from(card: ScryfallCard) -> Self {
         match card {
-            ScryfallCard::Normal(c) => c.to_card(),
-            ScryfallCard::Split(c) => c.to_card(),
-            ScryfallCard::Flip(c) => c.to_card(),
-            ScryfallCard::Transform(c) => c.to_card(),
-            ScryfallCard::ModalDFC(c) => c.to_card(),
-            ScryfallCard::Meld(c) => c.to_card(),
-            ScryfallCard::Leveler(c) => c.to_card(),
-            ScryfallCard::Class(c) => c.to_card(),
-            ScryfallCard::Saga(c) => c.to_card(),
-            ScryfallCard::Adventure(c) => c.to_card(),
-            ScryfallCard::Mutate(c) => c.to_card(),
-            ScryfallCard::Prototype(c) => c.to_card(),
-            ScryfallCard::Planar(c) => c.to_card(),
-            ScryfallCard::Scheme(c) => c.to_card(),
-            ScryfallCard::Vanguard(c) => c.to_card(),
-            ScryfallCard::Token(c) => c.to_card(),
-            ScryfallCard::DoubleFacedToken(c) => c.to_card(),
-            ScryfallCard::Emblem(c) => c.to_card(),
-            ScryfallCard::Augment(c) => c.to_card(),
-            ScryfallCard::Host(c) => c.to_card(),
-            ScryfallCard::ArtSeries(c) => c.to_card(),
-            ScryfallCard::ReversibleCard(c) => c.to_card(),
+            ScryfallCard::Normal(c) => 
+            Card {
+                oracle_id: c.oracle_id(),
+                slug: slug(&c.name()),
+                name_full: strip_alchemy_prefix(&c.name()),
+                name_front: strip_alchemy_prefix(&c.name()),
+                name_back: None,
+                lang: c.lang.clone(),
+                scryfall_uri: c.scryfall_uri.clone(),
+                layout: "normal".to_string(),
+                mana_cost_combined: None,
+                mana_cost_front: c.mana_cost.clone(),
+                mana_cost_back: None,
+                cmc: c.cmc,
+                type_line_full: c.type_line.clone(),
+                type_line_front: c.type_line.clone(),
+                type_line_back: None,
+                oracle_text: c.oracle_text.clone(),
+                oracle_text_back: None,
+                colors: c.colors.clone(),
+                colors_back: None,
+                color_identity: c.color_identity.clone(),
+                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal_commander: is_legal_commander(&c.type_line),
+                is_rebalanced: c.is_rebalanced(),
+                rarity: c.rarity.clone(),
+                image_small: c.image_uris.small.clone(),
+                image_normal: c.image_uris.normal.clone(),
+                image_large: c.image_uris.large.clone(),
+                image_art_crop: c.image_uris.art_crop.clone(),
+                image_border_crop: c.image_uris.border_crop.clone(),
+                image_small_back: None,
+                image_normal_back: None,
+                image_large_back: None,
+                image_art_crop_back: None,
+                image_border_crop_back: None,
+                lowest_rarity: c.lowest_rarity.clone(),
+            },
+            ScryfallCard::Split(c) => Card {
+                oracle_id: c.oracle_id(),
+                slug: slug(&c.name()),
+                name_full: strip_alchemy_prefix(&c.name()),
+                name_front: strip_alchemy_prefix(&c.card_faces[0].name),
+                name_back: Some(strip_alchemy_prefix(&c.card_faces[1].name)),
+                lang: c.lang.clone(),
+                scryfall_uri: c.scryfall_uri.clone(),
+                layout: c.layout(),
+                mana_cost_combined: c.mana_cost.clone(),
+                mana_cost_front: Some(c.card_faces[0].mana_cost.clone()),
+                mana_cost_back: Some(c.card_faces[1].mana_cost.clone()),
+                cmc: c.cmc,
+                type_line_full: c.type_line.clone(),
+                type_line_front: c.card_faces[0].type_line.clone(),
+                type_line_back: Some(c.card_faces[1].type_line.clone()),
+                oracle_text: Some(c.card_faces[0].oracle_text.clone()),
+                oracle_text_back: Some(c.card_faces[1].oracle_text.clone()),
+                colors: c.colors.clone(),
+                colors_back: None,
+                color_identity: c.color_identity.clone(),
+                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal_commander: is_legal_commander(&c.type_line),
+                is_rebalanced: c.is_rebalanced(),
+                rarity: c.rarity.clone(),
+                image_small: c.image_uris.small.clone(),
+                image_normal: c.image_uris.normal.clone(),
+                image_large: c.image_uris.large.clone(),
+                image_art_crop: c.image_uris.art_crop.clone(),
+                image_border_crop: c.image_uris.border_crop.clone(),
+                image_small_back: None,
+                image_normal_back: None,
+                image_large_back: None,
+                image_art_crop_back: None,
+                image_border_crop_back: None,
+                lowest_rarity: c.lowest_rarity.clone(),
+            },
+            ScryfallCard::Flip(c) => Card {
+                oracle_id: c.oracle_id(),
+                slug: slug(&c.name()),
+                name_full: strip_alchemy_prefix(&c.name()),
+                name_front: strip_alchemy_prefix(&c.card_faces[0].name),
+                name_back: Some(strip_alchemy_prefix(&c.card_faces[1].name)),
+                lang: c.lang.clone(),
+                scryfall_uri: c.scryfall_uri.clone(),
+                layout: c.layout(),
+                mana_cost_combined: None,
+                mana_cost_front: c.mana_cost.clone(),
+                mana_cost_back: None,
+                cmc: c.cmc,
+                type_line_full: c.type_line.clone(),
+                type_line_front: c.card_faces[0].type_line.clone(),
+                type_line_back: Some(c.card_faces[1].type_line.clone()),
+                oracle_text: Some(c.card_faces[0].oracle_text.clone()),
+                oracle_text_back: Some(c.card_faces[1].oracle_text.clone()),
+                colors: c.colors.clone(),
+                colors_back: c.colors.clone(),
+                color_identity: c.color_identity.clone(),
+                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal_commander: is_legal_commander(&c.type_line),
+                is_rebalanced: c.is_rebalanced(),
+                rarity: c.rarity.clone(),
+                image_small: c.image_uris.small.clone(),
+                image_normal: c.image_uris.normal.clone(),
+                image_large: c.image_uris.large.clone(),
+                image_art_crop: c.image_uris.art_crop.clone(),
+                image_border_crop: c.image_uris.border_crop.clone(),
+                image_small_back: None,
+                image_normal_back: None,
+                image_large_back: None,
+                image_art_crop_back: None,
+                image_border_crop_back: None,
+                lowest_rarity: c.lowest_rarity.clone(),
+            },
+            ScryfallCard::Transform(c) => Card {
+                oracle_id: c.oracle_id(),
+                slug: slug(&c.name()),
+                name_full: strip_alchemy_prefix(&c.name()),
+                name_front: strip_alchemy_prefix(&c.card_faces[0].name),
+                name_back: Some(strip_alchemy_prefix(&c.card_faces[1].name)),
+                lang: c.lang.clone(),
+                scryfall_uri: c.scryfall_uri.clone(),
+                layout: c.layout(),
+                mana_cost_combined: None,
+                mana_cost_front: Some(c.card_faces[0].mana_cost.clone()),
+                mana_cost_back: None,
+                cmc: c.cmc,
+                type_line_full: c.type_line.clone(),
+                type_line_front: c.card_faces[0].type_line.clone(),
+                type_line_back: Some(c.card_faces[1].type_line.clone()),
+                oracle_text: Some(c.card_faces[0].oracle_text.clone()),
+                oracle_text_back: Some(c.card_faces[1].oracle_text.clone()),
+                colors: c.card_faces[0].colors.clone(),
+                colors_back: c.card_faces[1].colors.clone(),
+                color_identity: c.color_identity.clone(),
+                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal_commander: is_legal_commander(&c.type_line),
+                is_rebalanced: c.is_rebalanced(),
+                rarity: c.rarity.clone(),
+                image_small: c.card_faces[0].image_uris.small.clone(),
+                image_normal: c.card_faces[0].image_uris.normal.clone(),
+                image_large: c.card_faces[0].image_uris.large.clone(),
+                image_art_crop: c.card_faces[0].image_uris.art_crop.clone(),
+                image_border_crop: c.card_faces[0].image_uris.border_crop.clone(),
+                image_small_back: Some(c.card_faces[1].image_uris.small.clone()),
+                image_normal_back: Some(c.card_faces[1].image_uris.normal.clone()),
+                image_large_back: Some(c.card_faces[1].image_uris.large.clone()),
+                image_art_crop_back: Some(c.card_faces[1].image_uris.border_crop.clone()),
+                image_border_crop_back: Some(c.card_faces[1].image_uris.art_crop.clone()),
+                lowest_rarity: c.lowest_rarity.clone(),
+            },
+            ScryfallCard::ModalDFC(c) => Card {
+                oracle_id: c.oracle_id(),
+                slug: slug(&c.name()),
+                name_full: strip_alchemy_prefix(&c.name()),
+                name_front: strip_alchemy_prefix(&c.card_faces[0].name),
+                name_back: Some(strip_alchemy_prefix(&c.card_faces[1].name)),
+                lang: c.lang.clone(),
+                scryfall_uri: c.scryfall_uri.clone(),
+                layout: c.layout(),
+                mana_cost_combined: None,
+                mana_cost_front: Some(c.card_faces[0].mana_cost.clone()),
+                mana_cost_back: Some(c.card_faces[1].mana_cost.clone()),
+                cmc: c.cmc,
+                type_line_full: c.type_line.clone(),
+                type_line_front: c.card_faces[0].type_line.clone(),
+                type_line_back: Some(c.card_faces[1].type_line.clone()),
+                oracle_text: Some(c.card_faces[0].oracle_text.clone()),
+                oracle_text_back: Some(c.card_faces[1].oracle_text.clone()),
+                colors: c.card_faces[0].colors.clone(),
+                colors_back: c.card_faces[1].colors.clone(),
+                color_identity: c.color_identity.clone(),
+                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal_commander: is_legal_commander(&c.type_line),
+                is_rebalanced: c.is_rebalanced(),
+                rarity: c.rarity.clone(),
+                image_small: c.card_faces[0].image_uris.small.clone(),
+                image_normal: c.card_faces[0].image_uris.normal.clone(),
+                image_large: c.card_faces[0].image_uris.large.clone(),
+                image_art_crop: c.card_faces[0].image_uris.art_crop.clone(),
+                image_border_crop: c.card_faces[0].image_uris.border_crop.clone(),
+                image_small_back: Some(c.card_faces[1].image_uris.small.clone()),
+                image_normal_back: Some(c.card_faces[1].image_uris.normal.clone()),
+                image_large_back: Some(c.card_faces[1].image_uris.large.clone()),
+                image_art_crop_back: Some(c.card_faces[1].image_uris.border_crop.clone()),
+                image_border_crop_back: Some(c.card_faces[1].image_uris.art_crop.clone()),
+                lowest_rarity: c.lowest_rarity.clone(),
+            },
+            ScryfallCard::Meld(c) => Card {
+                oracle_id: c.oracle_id(),
+                slug: slug(&c.name()),
+                name_full: strip_alchemy_prefix(&c.name()),
+                name_front: strip_alchemy_prefix(&c.all_parts[0].name),
+                name_back: None,
+                lang: c.lang.clone(),
+                scryfall_uri: c.scryfall_uri.clone(),
+                layout: c.layout(),
+                mana_cost_combined: None,
+                mana_cost_front: c.mana_cost.clone(),
+                mana_cost_back: None,
+                cmc: c.cmc,
+                type_line_full: c.type_line.clone(),
+                type_line_front: c.type_line.clone(),
+                type_line_back: None,
+                oracle_text: c.oracle_text.clone(),
+                oracle_text_back: None,
+                colors: c.colors.clone(),
+                colors_back: None,
+                color_identity: c.color_identity.clone(),
+                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal_commander: is_legal_commander(&c.type_line)
+                    && c
+                        .all_parts
+                        .iter()
+                        .find(|part| part.name == c.name())
+                        .expect("Find Meld part associated to this card")
+                        .component
+                        != "meld_result".to_string(),
+                is_rebalanced: c.is_rebalanced(),
+                rarity: c.rarity.clone(),
+                image_small: c.image_uris.small.clone(),
+                image_normal: c.image_uris.normal.clone(),
+                image_large: c.image_uris.large.clone(),
+                image_art_crop: c.image_uris.art_crop.clone(),
+                image_border_crop: c.image_uris.border_crop.clone(),
+                image_small_back: None,
+                image_normal_back: None,
+                image_large_back: None,
+                image_art_crop_back: None,
+                image_border_crop_back: None,
+                lowest_rarity: c.lowest_rarity.clone(),
+            },
+            ScryfallCard::Leveler(c) => 
+            Card {
+                oracle_id: c.oracle_id(),
+                slug: slug(&c.name()),
+                name_full: strip_alchemy_prefix(&c.name()),
+                name_front: strip_alchemy_prefix(&c.name()),
+                name_back: None,
+                lang: c.lang.clone(),
+                scryfall_uri: c.scryfall_uri.clone(),
+                layout: "leveler".to_string(),
+                mana_cost_combined: None,
+                mana_cost_front: c.mana_cost.clone(),
+                mana_cost_back: None,
+                cmc: c.cmc,
+                type_line_full: c.type_line.clone(),
+                type_line_front: c.type_line.clone(),
+                type_line_back: None,
+                oracle_text: c.oracle_text.clone(),
+                oracle_text_back: None,
+                colors: c.colors.clone(),
+                colors_back: None,
+                color_identity: c.color_identity.clone(),
+                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal_commander: is_legal_commander(&c.type_line),
+                is_rebalanced: c.is_rebalanced(),
+                rarity: c.rarity.clone(),
+                image_small: c.image_uris.small.clone(),
+                image_normal: c.image_uris.normal.clone(),
+                image_large: c.image_uris.large.clone(),
+                image_art_crop: c.image_uris.art_crop.clone(),
+                image_border_crop: c.image_uris.border_crop.clone(),
+                image_small_back: None,
+                image_normal_back: None,
+                image_large_back: None,
+                image_art_crop_back: None,
+                image_border_crop_back: None,
+                lowest_rarity: c.lowest_rarity.clone(),
+            },
+            ScryfallCard::Class(c) => 
+            Card {
+                oracle_id: c.oracle_id(),
+                slug: slug(&c.name()),
+                name_full: strip_alchemy_prefix(&c.name()),
+                name_front: strip_alchemy_prefix(&c.name()),
+                name_back: None,
+                lang: c.lang.clone(),
+                scryfall_uri: c.scryfall_uri.clone(),
+                layout: "class".to_string(),
+                mana_cost_combined: None,
+                mana_cost_front: c.mana_cost.clone(),
+                mana_cost_back: None,
+                cmc: c.cmc,
+                type_line_full: c.type_line.clone(),
+                type_line_front: c.type_line.clone(),
+                type_line_back: None,
+                oracle_text: c.oracle_text.clone(),
+                oracle_text_back: None,
+                colors: c.colors.clone(),
+                colors_back: None,
+                color_identity: c.color_identity.clone(),
+                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal_commander: is_legal_commander(&c.type_line),
+                is_rebalanced: c.is_rebalanced(),
+                rarity: c.rarity.clone(),
+                image_small: c.image_uris.small.clone(),
+                image_normal: c.image_uris.normal.clone(),
+                image_large: c.image_uris.large.clone(),
+                image_art_crop: c.image_uris.art_crop.clone(),
+                image_border_crop: c.image_uris.border_crop.clone(),
+                image_small_back: None,
+                image_normal_back: None,
+                image_large_back: None,
+                image_art_crop_back: None,
+                image_border_crop_back: None,
+                lowest_rarity: c.lowest_rarity.clone(),
+            },
+            ScryfallCard::Saga(c) => 
+            Card {
+                oracle_id: c.oracle_id(),
+                slug: slug(&c.name()),
+                name_full: strip_alchemy_prefix(&c.name()),
+                name_front: strip_alchemy_prefix(&c.name()),
+                name_back: None,
+                lang: c.lang.clone(),
+                scryfall_uri: c.scryfall_uri.clone(),
+                layout: "saga".to_string(),
+                mana_cost_combined: None,
+                mana_cost_front: c.mana_cost.clone(),
+                mana_cost_back: None,
+                cmc: c.cmc,
+                type_line_full: c.type_line.clone(),
+                type_line_front: c.type_line.clone(),
+                type_line_back: None,
+                oracle_text: c.oracle_text.clone(),
+                oracle_text_back: None,
+                colors: c.colors.clone(),
+                colors_back: None,
+                color_identity: c.color_identity.clone(),
+                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal_commander: is_legal_commander(&c.type_line),
+                is_rebalanced: c.is_rebalanced(),
+                rarity: c.rarity.clone(),
+                image_small: c.image_uris.small.clone(),
+                image_normal: c.image_uris.normal.clone(),
+                image_large: c.image_uris.large.clone(),
+                image_art_crop: c.image_uris.art_crop.clone(),
+                image_border_crop: c.image_uris.border_crop.clone(),
+                image_small_back: None,
+                image_normal_back: None,
+                image_large_back: None,
+                image_art_crop_back: None,
+                image_border_crop_back: None,
+                lowest_rarity: c.lowest_rarity.clone(),
+            },
+            ScryfallCard::Adventure(c) => Card {
+                oracle_id: c.oracle_id(),
+                slug: slug(&c.name()),
+                name_full: strip_alchemy_prefix(&c.name()),
+                name_front: strip_alchemy_prefix(&c.card_faces[0].name),
+                name_back: Some(strip_alchemy_prefix(&c.card_faces[1].name)),
+                lang: c.lang.clone(),
+                scryfall_uri: c.scryfall_uri.clone(),
+                layout: c.layout(),
+                mana_cost_combined: c.mana_cost.clone(),
+                mana_cost_front: Some(c.card_faces[0].mana_cost.clone()),
+                mana_cost_back: Some(c.card_faces[1].mana_cost.clone()),
+                cmc: c.cmc,
+                type_line_full: c.type_line.clone(),
+                type_line_front: c.card_faces[0].type_line.clone(),
+                type_line_back: Some(c.card_faces[1].type_line.clone()),
+                oracle_text: Some(c.card_faces[0].oracle_text.clone()),
+                oracle_text_back: Some(c.card_faces[1].oracle_text.clone()),
+                colors: c.colors.clone(),
+                colors_back: None,
+                color_identity: c.color_identity.clone(),
+                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal_commander: is_legal_commander(&c.card_faces[1].type_line),
+                is_rebalanced: c.is_rebalanced(),
+                rarity: c.rarity.clone(),
+                image_small: c.image_uris.small.clone(),
+                image_normal: c.image_uris.normal.clone(),
+                image_large: c.image_uris.large.clone(),
+                image_art_crop: c.image_uris.art_crop.clone(),
+                image_border_crop: c.image_uris.border_crop.clone(),
+                image_small_back: None,
+                image_normal_back: None,
+                image_large_back: None,
+                image_art_crop_back: None,
+                image_border_crop_back: None,
+                lowest_rarity: c.lowest_rarity.clone(),
+            },
+            ScryfallCard::Mutate(c) => 
+            Card {
+                oracle_id: c.oracle_id(),
+                slug: slug(&c.name()),
+                name_full: strip_alchemy_prefix(&c.name()),
+                name_front: strip_alchemy_prefix(&c.name()),
+                name_back: None,
+                lang: c.lang.clone(),
+                scryfall_uri: c.scryfall_uri.clone(),
+                layout: "adventure".to_string(),
+                mana_cost_combined: None,
+                mana_cost_front: c.mana_cost.clone(),
+                mana_cost_back: None,
+                cmc: c.cmc,
+                type_line_full: c.type_line.clone(),
+                type_line_front: c.type_line.clone(),
+                type_line_back: None,
+                oracle_text: c.oracle_text.clone(),
+                oracle_text_back: None,
+                colors: c.colors.clone(),
+                colors_back: None,
+                color_identity: c.color_identity.clone(),
+                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal_commander: is_legal_commander(&c.type_line),
+                is_rebalanced: c.is_rebalanced(),
+                rarity: c.rarity.clone(),
+                image_small: c.image_uris.small.clone(),
+                image_normal: c.image_uris.normal.clone(),
+                image_large: c.image_uris.large.clone(),
+                image_art_crop: c.image_uris.art_crop.clone(),
+                image_border_crop: c.image_uris.border_crop.clone(),
+                image_small_back: None,
+                image_normal_back: None,
+                image_large_back: None,
+                image_art_crop_back: None,
+                image_border_crop_back: None,
+                lowest_rarity: c.lowest_rarity.clone(),
+            },
+            ScryfallCard::Prototype(c) => 
+            Card {
+                oracle_id: c.oracle_id(),
+                slug: slug(&c.name()),
+                name_full: strip_alchemy_prefix(&c.name()),
+                name_front: strip_alchemy_prefix(&c.name()),
+                name_back: None,
+                lang: c.lang.clone(),
+                scryfall_uri: c.scryfall_uri.clone(),
+                layout: "prototype".to_string(),
+                mana_cost_combined: None,
+                mana_cost_front: c.mana_cost.clone(),
+                mana_cost_back: None,
+                cmc: c.cmc,
+                type_line_full: c.type_line.clone(),
+                type_line_front: c.type_line.clone(),
+                type_line_back: None,
+                oracle_text: c.oracle_text.clone(),
+                oracle_text_back: None,
+                colors: c.colors.clone(),
+                colors_back: None,
+                color_identity: c.color_identity.clone(),
+                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal_commander: is_legal_commander(&c.type_line),
+                is_rebalanced: c.is_rebalanced(),
+                rarity: c.rarity.clone(),
+                image_small: c.image_uris.small.clone(),
+                image_normal: c.image_uris.normal.clone(),
+                image_large: c.image_uris.large.clone(),
+                image_art_crop: c.image_uris.art_crop.clone(),
+                image_border_crop: c.image_uris.border_crop.clone(),
+                image_small_back: None,
+                image_normal_back: None,
+                image_large_back: None,
+                image_art_crop_back: None,
+                image_border_crop_back: None,
+                lowest_rarity: c.lowest_rarity.clone(),
+            },
+            ScryfallCard::Planar(c) => 
+            Card {
+                oracle_id: c.oracle_id(),
+                slug: slug(&c.name()),
+                name_full: strip_alchemy_prefix(&c.name()),
+                name_front: strip_alchemy_prefix(&c.name()),
+                name_back: None,
+                lang: c.lang.clone(),
+                scryfall_uri: c.scryfall_uri.clone(),
+                layout: "planar".to_string(),
+                mana_cost_combined: None,
+                mana_cost_front: c.mana_cost.clone(),
+                mana_cost_back: None,
+                cmc: c.cmc,
+                type_line_full: c.type_line.clone(),
+                type_line_front: c.type_line.clone(),
+                type_line_back: None,
+                oracle_text: c.oracle_text.clone(),
+                oracle_text_back: None,
+                colors: c.colors.clone(),
+                colors_back: None,
+                color_identity: c.color_identity.clone(),
+                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal_commander: is_legal_commander(&c.type_line),
+                is_rebalanced: c.is_rebalanced(),
+                rarity: c.rarity.clone(),
+                image_small: c.image_uris.small.clone(),
+                image_normal: c.image_uris.normal.clone(),
+                image_large: c.image_uris.large.clone(),
+                image_art_crop: c.image_uris.art_crop.clone(),
+                image_border_crop: c.image_uris.border_crop.clone(),
+                image_small_back: None,
+                image_normal_back: None,
+                image_large_back: None,
+                image_art_crop_back: None,
+                image_border_crop_back: None,
+                lowest_rarity: c.lowest_rarity.clone(),
+            },
+            ScryfallCard::Scheme(c) => 
+            Card {
+                oracle_id: c.oracle_id(),
+                slug: slug(&c.name()),
+                name_full: strip_alchemy_prefix(&c.name()),
+                name_front: strip_alchemy_prefix(&c.name()),
+                name_back: None,
+                lang: c.lang.clone(),
+                scryfall_uri: c.scryfall_uri.clone(),
+                layout: "scheme".to_string(),
+                mana_cost_combined: None,
+                mana_cost_front: c.mana_cost.clone(),
+                mana_cost_back: None,
+                cmc: c.cmc,
+                type_line_full: c.type_line.clone(),
+                type_line_front: c.type_line.clone(),
+                type_line_back: None,
+                oracle_text: c.oracle_text.clone(),
+                oracle_text_back: None,
+                colors: c.colors.clone(),
+                colors_back: None,
+                color_identity: c.color_identity.clone(),
+                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal_commander: is_legal_commander(&c.type_line),
+                is_rebalanced: c.is_rebalanced(),
+                rarity: c.rarity.clone(),
+                image_small: c.image_uris.small.clone(),
+                image_normal: c.image_uris.normal.clone(),
+                image_large: c.image_uris.large.clone(),
+                image_art_crop: c.image_uris.art_crop.clone(),
+                image_border_crop: c.image_uris.border_crop.clone(),
+                image_small_back: None,
+                image_normal_back: None,
+                image_large_back: None,
+                image_art_crop_back: None,
+                image_border_crop_back: None,
+                lowest_rarity: c.lowest_rarity.clone(),
+            },
+            ScryfallCard::Vanguard(c) => 
+            Card {
+                oracle_id: c.oracle_id(),
+                slug: slug(&c.name()),
+                name_full: strip_alchemy_prefix(&c.name()),
+                name_front: strip_alchemy_prefix(&c.name()),
+                name_back: None,
+                lang: c.lang.clone(),
+                scryfall_uri: c.scryfall_uri.clone(),
+                layout: "vanguard".to_string(),
+                mana_cost_combined: None,
+                mana_cost_front: c.mana_cost.clone(),
+                mana_cost_back: None,
+                cmc: c.cmc,
+                type_line_full: c.type_line.clone(),
+                type_line_front: c.type_line.clone(),
+                type_line_back: None,
+                oracle_text: c.oracle_text.clone(),
+                oracle_text_back: None,
+                colors: c.colors.clone(),
+                colors_back: None,
+                color_identity: c.color_identity.clone(),
+                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal_commander: is_legal_commander(&c.type_line),
+                is_rebalanced: c.is_rebalanced(),
+                rarity: c.rarity.clone(),
+                image_small: c.image_uris.small.clone(),
+                image_normal: c.image_uris.normal.clone(),
+                image_large: c.image_uris.large.clone(),
+                image_art_crop: c.image_uris.art_crop.clone(),
+                image_border_crop: c.image_uris.border_crop.clone(),
+                image_small_back: None,
+                image_normal_back: None,
+                image_large_back: None,
+                image_art_crop_back: None,
+                image_border_crop_back: None,
+                lowest_rarity: c.lowest_rarity.clone(),
+            },
+            ScryfallCard::Token(c) =>
+                Card {
+                    oracle_id: c.oracle_id(),
+                    slug: slug(&c.name()),
+                    name_full: strip_alchemy_prefix(&c.name()),
+                    name_front: strip_alchemy_prefix(&c.name()),
+                    name_back: None,
+                    lang: c.lang.clone(),
+                    scryfall_uri: c.scryfall_uri.clone(),
+                    layout: "token".to_string(),
+                    mana_cost_combined: None,
+                    mana_cost_front: c.mana_cost.clone(),
+                    mana_cost_back: None,
+                    cmc: c.cmc,
+                    type_line_full: c.type_line.clone(),
+                    type_line_front: c.type_line.clone(),
+                    type_line_back: None,
+                    oracle_text: c.oracle_text.clone(),
+                    oracle_text_back: None,
+                    colors: c.colors.clone(),
+                    colors_back: None,
+                    color_identity: c.color_identity.clone(),
+                    is_legal: c.legalities.historicbrawl == "legal",
+                    is_legal_commander: is_legal_commander(&c.type_line),
+                    is_rebalanced: c.is_rebalanced(),
+                    rarity: c.rarity.clone(),
+                    image_small: c.image_uris.small.clone(),
+                    image_normal: c.image_uris.normal.clone(),
+                    image_large: c.image_uris.large.clone(),
+                    image_art_crop: c.image_uris.art_crop.clone(),
+                    image_border_crop: c.image_uris.border_crop.clone(),
+                    image_small_back: None,
+                    image_normal_back: None,
+                    image_large_back: None,
+                    image_art_crop_back: None,
+                    image_border_crop_back: None,
+                    lowest_rarity: c.lowest_rarity.clone(),
+                },
+            ScryfallCard::DoubleFacedToken(c) => Card {
+                oracle_id: c.oracle_id(),
+                slug: slug(&c.name()),
+                name_full: strip_alchemy_prefix(&c.name()),
+                name_front: strip_alchemy_prefix(&c.card_faces[0].name),
+                name_back: Some(strip_alchemy_prefix(&c.card_faces[1].name)),
+                lang: c.lang.clone(),
+                scryfall_uri: c.scryfall_uri.clone(),
+                layout: c.layout(),
+                mana_cost_combined: None,
+                mana_cost_front: None,
+                mana_cost_back: None,
+                cmc: c.cmc,
+                type_line_full: c.type_line.clone(),
+                type_line_front: c.type_line.clone(),
+                type_line_back: Some(c.type_line.clone()),
+                oracle_text: Some(c.card_faces[0].oracle_text.clone()),
+                oracle_text_back: Some(c.card_faces[1].oracle_text.clone()),
+                colors: None,
+                colors_back: None,
+                color_identity: c.color_identity.clone(),
+                is_legal: false,
+                is_legal_commander: false,
+                is_rebalanced: c.is_rebalanced(),
+                rarity: c.rarity.clone(),
+                image_small: c.card_faces[0].image_uris.small.clone(),
+                image_normal: c.card_faces[0].image_uris.normal.clone(),
+                image_large: c.card_faces[0].image_uris.large.clone(),
+                image_art_crop: c.card_faces[0].image_uris.art_crop.clone(),
+                image_border_crop: c.card_faces[0].image_uris.border_crop.clone(),
+                image_small_back: Some(c.card_faces[1].image_uris.small.clone()),
+                image_normal_back: Some(c.card_faces[1].image_uris.normal.clone()),
+                image_large_back: Some(c.card_faces[1].image_uris.large.clone()),
+                image_art_crop_back: Some(c.card_faces[1].image_uris.border_crop.clone()),
+                image_border_crop_back: Some(c.card_faces[1].image_uris.art_crop.clone()),
+                lowest_rarity: c.lowest_rarity.clone(),
+            },
+            ScryfallCard::Emblem(c) => 
+            Card {
+                oracle_id: c.oracle_id(),
+                slug: slug(&c.name()),
+                name_full: strip_alchemy_prefix(&c.name()),
+                name_front: strip_alchemy_prefix(&c.name()),
+                name_back: None,
+                lang: c.lang.clone(),
+                scryfall_uri: c.scryfall_uri.clone(),
+                layout: "emblem".to_string(),
+                mana_cost_combined: None,
+                mana_cost_front: c.mana_cost.clone(),
+                mana_cost_back: None,
+                cmc: c.cmc,
+                type_line_full: c.type_line.clone(),
+                type_line_front: c.type_line.clone(),
+                type_line_back: None,
+                oracle_text: c.oracle_text.clone(),
+                oracle_text_back: None,
+                colors: c.colors.clone(),
+                colors_back: None,
+                color_identity: c.color_identity.clone(),
+                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal_commander: is_legal_commander(&c.type_line),
+                is_rebalanced: c.is_rebalanced(),
+                rarity: c.rarity.clone(),
+                image_small: c.image_uris.small.clone(),
+                image_normal: c.image_uris.normal.clone(),
+                image_large: c.image_uris.large.clone(),
+                image_art_crop: c.image_uris.art_crop.clone(),
+                image_border_crop: c.image_uris.border_crop.clone(),
+                image_small_back: None,
+                image_normal_back: None,
+                image_large_back: None,
+                image_art_crop_back: None,
+                image_border_crop_back: None,
+                lowest_rarity: c.lowest_rarity.clone(),
+            },
+            ScryfallCard::Augment(c) => 
+            Card {
+                oracle_id: c.oracle_id(),
+                slug: slug(&c.name()),
+                name_full: strip_alchemy_prefix(&c.name()),
+                name_front: strip_alchemy_prefix(&c.name()),
+                name_back: None,
+                lang: c.lang.clone(),
+                scryfall_uri: c.scryfall_uri.clone(),
+                layout: "augment".to_string(),
+                mana_cost_combined: None,
+                mana_cost_front: c.mana_cost.clone(),
+                mana_cost_back: None,
+                cmc: c.cmc,
+                type_line_full: c.type_line.clone(),
+                type_line_front: c.type_line.clone(),
+                type_line_back: None,
+                oracle_text: c.oracle_text.clone(),
+                oracle_text_back: None,
+                colors: c.colors.clone(),
+                colors_back: None,
+                color_identity: c.color_identity.clone(),
+                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal_commander: is_legal_commander(&c.type_line),
+                is_rebalanced: c.is_rebalanced(),
+                rarity: c.rarity.clone(),
+                image_small: c.image_uris.small.clone(),
+                image_normal: c.image_uris.normal.clone(),
+                image_large: c.image_uris.large.clone(),
+                image_art_crop: c.image_uris.art_crop.clone(),
+                image_border_crop: c.image_uris.border_crop.clone(),
+                image_small_back: None,
+                image_normal_back: None,
+                image_large_back: None,
+                image_art_crop_back: None,
+                image_border_crop_back: None,
+                lowest_rarity: c.lowest_rarity.clone(),
+            },
+            ScryfallCard::Host(c) => 
+            Card {
+                oracle_id: c.oracle_id(),
+                slug: slug(&c.name()),
+                name_full: strip_alchemy_prefix(&c.name()),
+                name_front: strip_alchemy_prefix(&c.name()),
+                name_back: None,
+                lang: c.lang.clone(),
+                scryfall_uri: c.scryfall_uri.clone(),
+                layout: "host".to_string(),
+                mana_cost_combined: None,
+                mana_cost_front: c.mana_cost.clone(),
+                mana_cost_back: None,
+                cmc: c.cmc,
+                type_line_full: c.type_line.clone(),
+                type_line_front: c.type_line.clone(),
+                type_line_back: None,
+                oracle_text: c.oracle_text.clone(),
+                oracle_text_back: None,
+                colors: c.colors.clone(),
+                colors_back: None,
+                color_identity: c.color_identity.clone(),
+                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal_commander: is_legal_commander(&c.type_line),
+                is_rebalanced: c.is_rebalanced(),
+                rarity: c.rarity.clone(),
+                image_small: c.image_uris.small.clone(),
+                image_normal: c.image_uris.normal.clone(),
+                image_large: c.image_uris.large.clone(),
+                image_art_crop: c.image_uris.art_crop.clone(),
+                image_border_crop: c.image_uris.border_crop.clone(),
+                image_small_back: None,
+                image_normal_back: None,
+                image_large_back: None,
+                image_art_crop_back: None,
+                image_border_crop_back: None,
+                lowest_rarity: c.lowest_rarity.clone(),
+            },
+            ScryfallCard::ArtSeries(c) => Card {
+                oracle_id: c.oracle_id(),
+                slug: slug(&c.name()),
+                name_full: strip_alchemy_prefix(&c.name()),
+                name_front: strip_alchemy_prefix(&c.card_faces[0].name),
+                name_back: Some(strip_alchemy_prefix(&c.card_faces[1].name)),
+                lang: c.lang.clone(),
+                scryfall_uri: c.scryfall_uri.clone(),
+                layout: c.layout(),
+                mana_cost_combined: None,
+                mana_cost_front: None,
+                mana_cost_back: None,
+                cmc: c.cmc,
+                type_line_full: c.type_line.clone(),
+                type_line_front: c.card_faces[0].type_line.clone(),
+                type_line_back: Some(c.card_faces[1].type_line.clone()),
+                oracle_text: Some(c.card_faces[0].oracle_text.clone()),
+                oracle_text_back: Some(c.card_faces[1].oracle_text.clone()),
+                colors: None,
+                colors_back: None,
+                color_identity: c.color_identity.clone(),
+                is_legal: false,
+                is_legal_commander: false,
+                is_rebalanced: c.is_rebalanced(),
+                rarity: c.rarity.clone(),
+                image_small: c.card_faces[0].image_uris.as_ref().map_or(
+                    "https://errors.scryfall.com/missing.jpg".to_string(),
+                    |uris| uris.small.clone(),
+                ),
+                image_normal: c.card_faces[0].image_uris.as_ref().map_or(
+                    "https://errors.scryfall.com/missing.jpg".to_string(),
+                    |uris| uris.normal.clone(),
+                ),
+                image_large: c.card_faces[0].image_uris.as_ref().map_or(
+                    "https://errors.scryfall.com/missing.jpg".to_string(),
+                    |uris| uris.large.clone(),
+                ),
+                image_art_crop: c.card_faces[0].image_uris.as_ref().map_or(
+                    "https://errors.scryfall.com/missing.jpg".to_string(),
+                    |uris| uris.art_crop.clone(),
+                ),
+                image_border_crop: c.card_faces[0].image_uris.as_ref().map_or(
+                    "https://errors.scryfall.com/missing.jpg".to_string(),
+                    |uris| uris.border_crop.clone(),
+                ),
+                image_small_back: Some(c.card_faces[0].image_uris.as_ref().map_or(
+                    "https://errors.scryfall.com/missing.jpg".to_string(),
+                    |uris| uris.small.clone(),
+                )),
+                image_normal_back: Some(c.card_faces[0].image_uris.as_ref().map_or(
+                    "https://errors.scryfall.com/missing.jpg".to_string(),
+                    |uris| uris.normal.clone(),
+                )),
+                image_large_back: Some(c.card_faces[0].image_uris.as_ref().map_or(
+                    "https://errors.scryfall.com/missing.jpg".to_string(),
+                    |uris| uris.large.clone(),
+                )),
+                image_art_crop_back: Some(c.card_faces[0].image_uris.as_ref().map_or(
+                    "https://errors.scryfall.com/missing.jpg".to_string(),
+                    |uris| uris.art_crop.clone(),
+                )),
+                image_border_crop_back: Some(c.card_faces[0].image_uris.as_ref().map_or(
+                    "https://errors.scryfall.com/missing.jpg".to_string(),
+                    |uris| uris.border_crop.clone(),
+                )),
+                lowest_rarity: c.lowest_rarity.clone(),
+            },
+            ScryfallCard::ReversibleCard(c) => Card {
+                oracle_id: c.oracle_id(),
+                slug: slug(&c.name()),
+                name_full: strip_alchemy_prefix(&c.name()),
+                name_front: strip_alchemy_prefix(&c.card_faces[0].name),
+                name_back: Some(strip_alchemy_prefix(&c.card_faces[1].name)),
+                lang: c.lang.clone(),
+                scryfall_uri: c.scryfall_uri.clone(),
+                layout: c.layout(),
+                mana_cost_combined: None,
+                mana_cost_front: None,
+                mana_cost_back: None,
+                cmc: c.card_faces[0].cmc,
+                type_line_full: c.card_faces[0].type_line.clone(),
+                type_line_front: c.card_faces[0].type_line.clone(),
+                type_line_back: Some(c.card_faces[1].type_line.clone()),
+                oracle_text: Some(c.card_faces[0].oracle_text.clone()),
+                oracle_text_back: Some(c.card_faces[1].oracle_text.clone()),
+                colors: None,
+                colors_back: None,
+                color_identity: c.color_identity.clone(),
+                is_legal: false,
+                is_legal_commander: false,
+                is_rebalanced: c.is_rebalanced(),
+                rarity: c.rarity.clone(),
+                image_small: c.card_faces[0].image_uris.small.clone(),
+                image_normal: c.card_faces[0].image_uris.normal.clone(),
+                image_large: c.card_faces[0].image_uris.large.clone(),
+                image_art_crop: c.card_faces[0].image_uris.art_crop.clone(),
+                image_border_crop: c.card_faces[0].image_uris.border_crop.clone(),
+                image_small_back: Some(c.card_faces[1].image_uris.small.clone()),
+                image_normal_back: Some(c.card_faces[1].image_uris.normal.clone()),
+                image_large_back: Some(c.card_faces[1].image_uris.large.clone()),
+                image_art_crop_back: Some(c.card_faces[1].image_uris.border_crop.clone()),
+                image_border_crop_back: Some(c.card_faces[1].image_uris.art_crop.clone()),
+                lowest_rarity: c.lowest_rarity.clone(),
+            },
         }
     }
 }

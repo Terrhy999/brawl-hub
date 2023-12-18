@@ -9,6 +9,7 @@ sudo -i -u postgres -H -- psql -d brawlhub -h localhost -c "CREATE TABLE IF NOT 
     scryfall_uri text NOT NULL,
     layout text NOT NULL,
     rarity text NOT NULL,
+    lowest_rarity text NOT NULL,
     lang text NOT NULL,
     mana_cost_combined text,
     mana_cost_front text,
