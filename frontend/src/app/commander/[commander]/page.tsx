@@ -1,7 +1,7 @@
 import CardGrid, { Card } from '@/app/_components/card-grid'
 import { CardPage, CardSlug } from '@/app/_components/card-page'
 import { fetchJsonFromBrawlhub } from '@/app/_utils/fetch-json'
-import { ClickableChip } from '@/app/commanders/layout'
+import { ClickableChip } from '@/app/_components/clickable-chip'
 import Link from 'next/link'
 import React from 'react'
 
