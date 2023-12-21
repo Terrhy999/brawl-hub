@@ -4,10 +4,10 @@ import React from 'react'
 import { fetchJsonFromBrawlhub } from '@/app/_utils/fetch-json'
 import { Card, CardGridWithText } from '@/app/_components/card-grid'
 
-export const dynamicParams = false
-export async function generateStaticParams() {
-  return (await fetchJsonFromBrawlhub<string[]>(`card_slugs`)).map((name) => ({ card: name }))
-}
+// export const dynamicParams = false
+// export async function generateStaticParams() {
+//   return (await fetchJsonFromBrawlhub<string[]>(`card_slugs`)).map((name) => ({ card: name }))
+// }
 
 async function getTopCommanders(slug: string): Promise<Card[]> {
   return await fetchJsonFromBrawlhub<Card[]>(`top_commanders_for_card/${slug}`)
