@@ -10,7 +10,7 @@ export async function generateStaticParams() {
 }
 
 async function getTopCommanders(slug: string): Promise<Card[]> {
-  return await fetch(`http://127.0.0.1:3030/top_commanders_for_card/${slug}`).then((res) => res.json())
+  return await fetchJsonFromBrawlhub<Card[]>(`top_commanders_for_card/${slug}`)
 }
 
 export default async function Page({ params }: { params: { card: string } }) {
@@ -22,10 +22,11 @@ export default async function Page({ params }: { params: { card: string } }) {
       <div className="max-w-[85%] mx-auto">
         <h3 id={'topCommanders'} className="text-3xl my-4 scroll-mt-16">
           <Link href={`#TopCommanders`} className="group">
-            <span className="text-bg-color group-hover:text-accent-color">#</span> Top Commanders ({topCommanders.length})
+            <span className="text-bg-color group-hover:text-accent-color">#</span> Top Commanders (
+            {topCommanders.length})
           </Link>
         </h3>
-        <CardGridWithText linkTo='commander' cards={topCommanders}/>     
+        <CardGridWithText linkTo="commander" cards={topCommanders} />
       </div>
     </CardPage>
   )
