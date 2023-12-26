@@ -228,10 +228,11 @@ async fn top_commanders_colorless(
     Json(res)
 }
 
+#[axum::debug_handler]
 async fn top_cards_of_color(
     Path(color): Path<String>,
     State(AppState { pool }): State<AppState>,
-) -> Json<Vec<CommanderTopCard>> {
+) -> Json<Vec<TopCardsOfColor>> {
     // Right now 'num_decks_total' is the number of decks with this EXACT color_identity, it needs to be the number of decks that INCLUDE this color identity
     // Eg colors = 'U' 'num_decks_total' is the number of mono-blue decks, not the number of decks with 'U' in the color_identity
 
@@ -249,27 +250,27 @@ async fn top_cards_of_color(
         colors.push(char.to_uppercase().to_string());
     }
 
-    let res = sqlx::query_as!(CommanderTopCard,"WITH DecksWithCommanderColor AS (
-            SELECT d.id
-            FROM deck d
-            WHERE EXISTS (
-                SELECT 1
-                FROM card c
-                WHERE d.commander = c.oracle_id
-                AND (c.color_identity @> $1::char(1)[])
-                AND NOT (c.color_identity && $2::char(1)[])
-            )
-        )
-        SELECT c.*,
-               (SELECT COUNT(*) FROM DecksWithCommanderColor) AS num_decks_total,
-               (SELECT COUNT(*) FROM DecksWithCommanderColor dc
-                WHERE dc.id IN (SELECT dl.deck_id FROM decklist dl WHERE dl.oracle_id = c.oracle_id)) AS num_decks_with_card
-        FROM card c
-        WHERE c.is_legal_commander = TRUE
-        AND (c.color_identity @> $1::char(1)[])
-        AND NOT (c.color_identity && $2::char(1)[])
-        ORDER BY num_decks_with_card DESC;
-        ", &colors, &not_colors).fetch_all(&pool).await.expect("error with db");
+    let res = sqlx::query_as!(
+        TopCardsOfColor,
+        "SELECT
+            card.*,
+            total_decks_could_play,
+            total_decks_with_card as count,
+            rank
+        FROM top_cards
+        JOIN card
+        ON top_cards.oracle_id = card.oracle_id
+        WHERE (top_cards.color_identity @> $1::char(1)[])
+        AND NOT (top_cards.color_identity && $2::char(1)[])
+        ORDER BY rank DESC
+        LIMIT 100;
+        ",
+        &colors,
+        &not_colors
+    )
+    .fetch_all(&pool)
+    .await
+    .expect("error with db");
     Json(res)
 }
 
@@ -812,6 +813,48 @@ struct CommanderTopCard {
     image_border_crop_back: Option<String>,
     num_decks_with_card: Option<i64>,
     num_decks_total: Option<i64>,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct TopCardsOfColor {
+    oracle_id: String,
+    name_full: String,
+    name_front: String,
+    name_back: Option<String>,
+    slug: String,
+    scryfall_uri: String,
+    layout: String,
+    rarity: String,
+    lowest_rarity: String,
+    lang: String,
+    mana_cost_combined: Option<String>,
+    mana_cost_front: Option<String>,
+    mana_cost_back: Option<String>,
+    cmc: f32,
+    type_line_full: String,
+    type_line_front: String,
+    type_line_back: Option<String>,
+    oracle_text: Option<String>,
+    oracle_text_back: Option<String>,
+    colors: Option<Vec<String>>,
+    colors_back: Option<Vec<String>>,
+    color_identity: Vec<String>,
+    is_legal: bool,
+    is_legal_commander: bool,
+    is_rebalanced: bool,
+    image_small: String,
+    image_normal: String,
+    image_large: String,
+    image_art_crop: String,
+    image_border_crop: String,
+    image_small_back: Option<String>,
+    image_normal_back: Option<String>,
+    image_large_back: Option<String>,
+    image_art_crop_back: Option<String>,
+    image_border_crop_back: Option<String>,
+    total_decks_could_play: i32,
+    count: i32,
+    rank: f32,
 }
 
 #[derive(Debug, serde::Serialize)]
