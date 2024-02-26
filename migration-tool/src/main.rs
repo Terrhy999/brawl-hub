@@ -19,7 +19,7 @@ async fn main() {
         .await
         .expect("couldn't connect to db");
 
-    // let decks = get_aetherhub_decks(0, 500).await;
+    // let decks = get_aetherhub_decks(100, 800).await;
     // for deck in decks {
     //     migrate_aetherhub_decklists(&pool, &deck).await
     // }
@@ -116,10 +116,10 @@ async fn migrate_scryfall_alchemy_cards(pool: &Pool<Postgres>) {
         .collect();
 
     for card in cards {
-        // println!(
-        //     "Insert {}, {} into brawlhub.card",
-        //     card.name_full, card.oracle_id
-        // );
+        println!(
+            "Insert {}, {} into brawlhub.card",
+            card.name_full, card.oracle_id
+        );
         sqlx::query_as!(
             Card,
             "INSERT INTO card(
@@ -161,6 +161,24 @@ async fn migrate_scryfall_alchemy_cards(pool: &Pool<Postgres>) {
         )
         VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35)
+        ON CONFLICT (oracle_id) DO UPDATE SET
+            scryfall_uri = EXCLUDED.scryfall_uri,
+            rarity = EXCLUDED.rarity,
+            lang = EXCLUDED.lang,
+            is_legal = EXCLUDED.is_legal,
+            is_legal_commander = EXCLUDED.is_legal_commander,
+            is_rebalanced = EXCLUDED.is_rebalanced,
+            image_small = EXCLUDED.image_small,
+            image_normal = EXCLUDED.image_normal,
+            image_large = EXCLUDED.image_large,
+            image_art_crop = EXCLUDED.image_art_crop,
+            image_border_crop = EXCLUDED.image_border_crop,
+            image_small_back = EXCLUDED.image_small_back,
+            image_normal_back = EXCLUDED.image_normal_back,
+            image_large_back = EXCLUDED.image_large_back,
+            image_art_crop_back = EXCLUDED.image_art_crop_back,
+            image_border_crop_back = EXCLUDED.image_border_crop_back,
+            lowest_rarity = EXCLUDED.lowest_rarity
         ",
         Uuid::parse_str(&card.oracle_id).expect("Parse uuid from oracle_id string"),
         card.name_full,
@@ -696,6 +714,7 @@ enum ScryfallCard {
     Host(Normal),
     ArtSeries(ArtSeries),
     ReversibleCard(ReversibleCard),
+    Case(Normal),
 }
 
 fn default_lowest_rarity() -> String {
@@ -1049,8 +1068,8 @@ struct CardImages {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct Legalities {
+    standardbrawl: String,
     brawl: String,
-    historicbrawl: String,
 }
 
 trait ScryfallCardProperties {
@@ -1137,6 +1156,7 @@ impl ScryfallCardProperties for ScryfallCard {
             ScryfallCard::Host(normal) => normal.name(),
             ScryfallCard::ArtSeries(art_series) => art_series.name(),
             ScryfallCard::ReversibleCard(reversible_card) => reversible_card.name(),
+            ScryfallCard::Case(normal) => normal.name(),
         }
     }
 
@@ -1164,6 +1184,7 @@ impl ScryfallCardProperties for ScryfallCard {
             ScryfallCard::Host(normal) => normal.oracle_id(),
             ScryfallCard::ArtSeries(art_series) => art_series.oracle_id(),
             ScryfallCard::ReversibleCard(reversible_card) => reversible_card.oracle_id(),
+            ScryfallCard::Case(normal) => normal.oracle_id(),
         }
     }
 
@@ -1191,6 +1212,7 @@ impl ScryfallCardProperties for ScryfallCard {
             ScryfallCard::Host(normal) => normal.released_at(),
             ScryfallCard::ArtSeries(art_series) => art_series.released_at(),
             ScryfallCard::ReversibleCard(reversible_card) => reversible_card.released_at(),
+            ScryfallCard::Case(normal) => normal.released_at(),
         }
     }
 
@@ -1218,6 +1240,7 @@ impl ScryfallCardProperties for ScryfallCard {
             ScryfallCard::Host(normal) => normal.games(),
             ScryfallCard::ArtSeries(art_series) => art_series.games(),
             ScryfallCard::ReversibleCard(reversible_card) => reversible_card.games(),
+            ScryfallCard::Case(normal) => normal.games(),
         }
     }
 
@@ -1245,6 +1268,7 @@ impl ScryfallCardProperties for ScryfallCard {
             ScryfallCard::Host(normal) => normal.promo_types(),
             ScryfallCard::ArtSeries(art_series) => art_series.promo_types(),
             ScryfallCard::ReversibleCard(reversible_card) => reversible_card.promo_types(),
+            ScryfallCard::Case(normal) => normal.promo_types(),
         }
     }
 
@@ -1272,6 +1296,7 @@ impl ScryfallCardProperties for ScryfallCard {
             ScryfallCard::Host(normal) => "host".to_string(),
             ScryfallCard::ArtSeries(art_series) => art_series.layout(),
             ScryfallCard::ReversibleCard(reversible_card) => reversible_card.layout(),
+            ScryfallCard::Case(normal) => "case".to_string(),
         }
     }
 
@@ -1301,6 +1326,7 @@ impl ScryfallCardProperties for ScryfallCard {
             ScryfallCard::Host(normal) => normal.is_rebalanced(),
             ScryfallCard::ArtSeries(art_series) => art_series.is_rebalanced(),
             ScryfallCard::ReversibleCard(reversible_card) => reversible_card.is_rebalanced(),
+            ScryfallCard::Case(normal) => normal.is_rebalanced(),
         }
     }
 
@@ -1328,6 +1354,7 @@ impl ScryfallCardProperties for ScryfallCard {
             ScryfallCard::Host(normal) => normal.rarity(),
             ScryfallCard::ArtSeries(art_series) => art_series.rarity(),
             ScryfallCard::ReversibleCard(reversible_card) => reversible_card.rarity(),
+            ScryfallCard::Case(normal) => normal.rarity(),
         }
     }
 
@@ -1355,6 +1382,7 @@ impl ScryfallCardProperties for ScryfallCard {
             ScryfallCard::Host(normal) => normal.lowest_rarity(),
             ScryfallCard::ArtSeries(art_series) => art_series.lowest_rarity(),
             ScryfallCard::ReversibleCard(reversible_card) => reversible_card.lowest_rarity(),
+            ScryfallCard::Case(normal) => normal.lowest_rarity(),
         }
     }
 
@@ -1382,6 +1410,7 @@ impl ScryfallCardProperties for ScryfallCard {
             ScryfallCard::Host(normal) => normal.set_lowest_rarity(new_lowest_rarity),
             ScryfallCard::ArtSeries(art_series) => art_series.set_lowest_rarity(new_lowest_rarity),
             ScryfallCard::ReversibleCard(reversible_card) => reversible_card.set_lowest_rarity(new_lowest_rarity),
+            ScryfallCard::Case(normal) => normal.set_lowest_rarity(new_lowest_rarity),
         }
     }
 
@@ -1908,7 +1937,7 @@ impl From<ScryfallCard> for Card {
                 colors: c.colors.clone(),
                 colors_back: None,
                 color_identity: c.color_identity.clone(),
-                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal: c.legalities.brawl == "legal",
                 is_legal_commander: is_legal_commander(&c.type_line),
                 is_rebalanced: c.is_rebalanced(),
                 rarity: c.rarity.clone(),
@@ -1945,7 +1974,7 @@ impl From<ScryfallCard> for Card {
                 colors: c.colors.clone(),
                 colors_back: None,
                 color_identity: c.color_identity.clone(),
-                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal: c.legalities.brawl == "legal",
                 is_legal_commander: is_legal_commander(&c.type_line),
                 is_rebalanced: c.is_rebalanced(),
                 rarity: c.rarity.clone(),
@@ -1982,7 +2011,7 @@ impl From<ScryfallCard> for Card {
                 colors: c.colors.clone(),
                 colors_back: c.colors.clone(),
                 color_identity: c.color_identity.clone(),
-                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal: c.legalities.brawl == "legal",
                 is_legal_commander: is_legal_commander(&c.type_line),
                 is_rebalanced: c.is_rebalanced(),
                 rarity: c.rarity.clone(),
@@ -2019,7 +2048,7 @@ impl From<ScryfallCard> for Card {
                 colors: c.card_faces[0].colors.clone(),
                 colors_back: c.card_faces[1].colors.clone(),
                 color_identity: c.color_identity.clone(),
-                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal: c.legalities.brawl == "legal",
                 is_legal_commander: is_legal_commander(&c.type_line),
                 is_rebalanced: c.is_rebalanced(),
                 rarity: c.rarity.clone(),
@@ -2056,7 +2085,7 @@ impl From<ScryfallCard> for Card {
                 colors: c.card_faces[0].colors.clone(),
                 colors_back: c.card_faces[1].colors.clone(),
                 color_identity: c.color_identity.clone(),
-                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal: c.legalities.brawl == "legal",
                 is_legal_commander: is_legal_commander(&c.type_line),
                 is_rebalanced: c.is_rebalanced(),
                 rarity: c.rarity.clone(),
@@ -2093,7 +2122,7 @@ impl From<ScryfallCard> for Card {
                 colors: c.colors.clone(),
                 colors_back: None,
                 color_identity: c.color_identity.clone(),
-                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal: c.legalities.brawl == "legal",
                 is_legal_commander: is_legal_commander(&c.type_line)
                     && c
                         .all_parts
@@ -2138,7 +2167,7 @@ impl From<ScryfallCard> for Card {
                 colors: c.colors.clone(),
                 colors_back: None,
                 color_identity: c.color_identity.clone(),
-                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal: c.legalities.brawl == "legal",
                 is_legal_commander: is_legal_commander(&c.type_line),
                 is_rebalanced: c.is_rebalanced(),
                 rarity: c.rarity.clone(),
@@ -2176,7 +2205,7 @@ impl From<ScryfallCard> for Card {
                 colors: c.colors.clone(),
                 colors_back: None,
                 color_identity: c.color_identity.clone(),
-                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal: c.legalities.brawl == "legal",
                 is_legal_commander: is_legal_commander(&c.type_line),
                 is_rebalanced: c.is_rebalanced(),
                 rarity: c.rarity.clone(),
@@ -2214,7 +2243,7 @@ impl From<ScryfallCard> for Card {
                 colors: c.colors.clone(),
                 colors_back: None,
                 color_identity: c.color_identity.clone(),
-                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal: c.legalities.brawl == "legal",
                 is_legal_commander: is_legal_commander(&c.type_line),
                 is_rebalanced: c.is_rebalanced(),
                 rarity: c.rarity.clone(),
@@ -2251,7 +2280,7 @@ impl From<ScryfallCard> for Card {
                 colors: c.colors.clone(),
                 colors_back: None,
                 color_identity: c.color_identity.clone(),
-                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal: c.legalities.brawl == "legal",
                 is_legal_commander: is_legal_commander(&c.card_faces[1].type_line),
                 is_rebalanced: c.is_rebalanced(),
                 rarity: c.rarity.clone(),
@@ -2289,7 +2318,7 @@ impl From<ScryfallCard> for Card {
                 colors: c.colors.clone(),
                 colors_back: None,
                 color_identity: c.color_identity.clone(),
-                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal: c.legalities.brawl == "legal",
                 is_legal_commander: is_legal_commander(&c.type_line),
                 is_rebalanced: c.is_rebalanced(),
                 rarity: c.rarity.clone(),
@@ -2327,7 +2356,7 @@ impl From<ScryfallCard> for Card {
                 colors: c.colors.clone(),
                 colors_back: None,
                 color_identity: c.color_identity.clone(),
-                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal: c.legalities.brawl == "legal",
                 is_legal_commander: is_legal_commander(&c.type_line),
                 is_rebalanced: c.is_rebalanced(),
                 rarity: c.rarity.clone(),
@@ -2365,7 +2394,7 @@ impl From<ScryfallCard> for Card {
                 colors: c.colors.clone(),
                 colors_back: None,
                 color_identity: c.color_identity.clone(),
-                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal: c.legalities.brawl == "legal",
                 is_legal_commander: is_legal_commander(&c.type_line),
                 is_rebalanced: c.is_rebalanced(),
                 rarity: c.rarity.clone(),
@@ -2403,7 +2432,7 @@ impl From<ScryfallCard> for Card {
                 colors: c.colors.clone(),
                 colors_back: None,
                 color_identity: c.color_identity.clone(),
-                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal: c.legalities.brawl == "legal",
                 is_legal_commander: is_legal_commander(&c.type_line),
                 is_rebalanced: c.is_rebalanced(),
                 rarity: c.rarity.clone(),
@@ -2441,7 +2470,7 @@ impl From<ScryfallCard> for Card {
                 colors: c.colors.clone(),
                 colors_back: None,
                 color_identity: c.color_identity.clone(),
-                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal: c.legalities.brawl == "legal",
                 is_legal_commander: is_legal_commander(&c.type_line),
                 is_rebalanced: c.is_rebalanced(),
                 rarity: c.rarity.clone(),
@@ -2479,7 +2508,7 @@ impl From<ScryfallCard> for Card {
                     colors: c.colors.clone(),
                     colors_back: None,
                     color_identity: c.color_identity.clone(),
-                    is_legal: c.legalities.historicbrawl == "legal",
+                    is_legal: c.legalities.brawl == "legal",
                     is_legal_commander: is_legal_commander(&c.type_line),
                     is_rebalanced: c.is_rebalanced(),
                     rarity: c.rarity.clone(),
@@ -2554,7 +2583,7 @@ impl From<ScryfallCard> for Card {
                 colors: c.colors.clone(),
                 colors_back: None,
                 color_identity: c.color_identity.clone(),
-                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal: c.legalities.brawl == "legal",
                 is_legal_commander: is_legal_commander(&c.type_line),
                 is_rebalanced: c.is_rebalanced(),
                 rarity: c.rarity.clone(),
@@ -2592,7 +2621,7 @@ impl From<ScryfallCard> for Card {
                 colors: c.colors.clone(),
                 colors_back: None,
                 color_identity: c.color_identity.clone(),
-                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal: c.legalities.brawl == "legal",
                 is_legal_commander: is_legal_commander(&c.type_line),
                 is_rebalanced: c.is_rebalanced(),
                 rarity: c.rarity.clone(),
@@ -2630,7 +2659,7 @@ impl From<ScryfallCard> for Card {
                 colors: c.colors.clone(),
                 colors_back: None,
                 color_identity: c.color_identity.clone(),
-                is_legal: c.legalities.historicbrawl == "legal",
+                is_legal: c.legalities.brawl == "legal",
                 is_legal_commander: is_legal_commander(&c.type_line),
                 is_rebalanced: c.is_rebalanced(),
                 rarity: c.rarity.clone(),
@@ -2748,6 +2777,43 @@ impl From<ScryfallCard> for Card {
                 image_large_back: Some(c.card_faces[1].image_uris.large.clone()),
                 image_art_crop_back: Some(c.card_faces[1].image_uris.border_crop.clone()),
                 image_border_crop_back: Some(c.card_faces[1].image_uris.art_crop.clone()),
+                lowest_rarity: c.lowest_rarity.clone(),
+            },
+            ScryfallCard::Case(c) => Card {
+                oracle_id: c.oracle_id(),
+                slug: slug(&c.name()),
+                name_full: strip_alchemy_prefix(&c.name()),
+                name_front: strip_alchemy_prefix(&c.name()),
+                name_back: None,
+                lang: c.lang.clone(),
+                scryfall_uri: c.scryfall_uri.clone(),
+                layout: "normal".to_string(),
+                mana_cost_combined: None,
+                mana_cost_front: c.mana_cost.clone(),
+                mana_cost_back: None,
+                cmc: c.cmc,
+                type_line_full: c.type_line.clone(),
+                type_line_front: c.type_line.clone(),
+                type_line_back: None,
+                oracle_text: c.oracle_text.clone(),
+                oracle_text_back: None,
+                colors: c.colors.clone(),
+                colors_back: None,
+                color_identity: c.color_identity.clone(),
+                is_legal: c.legalities.brawl == "legal",
+                is_legal_commander: is_legal_commander(&c.type_line),
+                is_rebalanced: c.is_rebalanced(),
+                rarity: c.rarity.clone(),
+                image_small: c.image_uris.small.clone(),
+                image_normal: c.image_uris.normal.clone(),
+                image_large: c.image_uris.large.clone(),
+                image_art_crop: c.image_uris.art_crop.clone(),
+                image_border_crop: c.image_uris.border_crop.clone(),
+                image_small_back: None,
+                image_normal_back: None,
+                image_large_back: None,
+                image_art_crop_back: None,
+                image_border_crop_back: None,
                 lowest_rarity: c.lowest_rarity.clone(),
             },
         }
