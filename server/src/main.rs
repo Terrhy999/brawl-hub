@@ -5,9 +5,10 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use sqlx::{postgres::PgPoolOptions, types::Uuid, Pool, Postgres};
+use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
 use std::{env, net::SocketAddr};
 use tower_http::cors::CorsLayer;
+use uuid::Uuid;
 
 #[derive(Clone)]
 struct AppState {
@@ -44,6 +45,7 @@ async fn main() {
             get(top_commanders_for_card),
         )
         .route("/search/:card_", get(get_card))
+        .route("/deck/:deck_id", get(deck_by_id))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
@@ -54,6 +56,172 @@ async fn main() {
         .serve(app.into_make_service())
         .await
         .expect("Failed to start server");
+}
+
+#[axum::debug_handler]
+async fn deck_by_id(
+    State(AppState { pool }): State<AppState>,
+    Path(deck_id): Path<i32>,
+) -> Json<Deck> {
+    #[derive(Debug)]
+    struct DeckInfo {
+        deck_id: Option<i32>,
+        url: String,
+        username: String,
+        date_created: i64,
+        date_updated: i64,
+        commander: Uuid,
+        companion: Option<Uuid>,
+        color_identity: Vec<String>,
+    }
+
+    #[derive(serde::Serialize, Debug)]
+    struct DecklistCard {
+        oracle_id: String,
+        name_full: String,
+        name_front: String,
+        name_back: Option<String>,
+        slug: String,
+        scryfall_uri: String,
+        layout: String,
+        rarity: String,
+        lowest_rarity: String,
+        lang: String,
+        mana_cost_combined: Option<String>,
+        mana_cost_front: Option<String>,
+        mana_cost_back: Option<String>,
+        cmc: f32,
+        type_line_full: String,
+        type_line_front: String,
+        type_line_back: Option<String>,
+        oracle_text: Option<String>,
+        oracle_text_back: Option<String>,
+        colors: Option<Vec<String>>,
+        colors_back: Option<Vec<String>>,
+        color_identity: Vec<String>,
+        is_legal: bool,
+        is_legal_commander: bool,
+        is_rebalanced: bool,
+        image_small: String,
+        image_normal: String,
+        image_large: String,
+        image_art_crop: String,
+        image_border_crop: String,
+        image_small_back: Option<String>,
+        image_normal_back: Option<String>,
+        image_large_back: Option<String>,
+        image_art_crop_back: Option<String>,
+        image_border_crop_back: Option<String>,
+        quantity: i64,
+        is_commander: bool,
+        is_companion: bool,
+    }
+
+    let deck_info: DeckInfo = sqlx::query_as!(
+        DeckInfo,
+        "SELECT 
+            deck_id, url, username, date_created, date_updated, commander, companion, color_identity 
+            FROM deck 
+            WHERE deck_id = $1;", deck_id).fetch_one(&pool).await.expect("couldn't fetch deck");
+
+    println!(
+        "commander uuid: {}\ncompanion uuid: {:#?}",
+        deck_info.commander, deck_info.companion
+    );
+
+    let commander: Card = sqlx::query_as!(
+        Card,
+        "SELECT * FROM card WHERE oracle_id = $1;",
+        deck_info.commander
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("couldn't fetch commander by id");
+
+    let companion: Option<Card> = if (deck_info.companion.is_some()) {
+        Some(
+            sqlx::query_as!(
+                Card,
+                "SELECT * FROM card WHERE oracle_id = $1;",
+                deck_info.companion
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("couldn't fetch companion by id"),
+        )
+    } else {
+        None
+    };
+
+    let deck_list: Vec<CardCount> = sqlx::query_as!(
+        DecklistCard,
+        "SELECT card.*, decklist.is_companion, decklist.is_commander, decklist.quantity
+            FROM decklist
+            JOIN card
+            ON card.oracle_id = decklist.oracle_id
+            JOIN deck
+            ON decklist.deck_id = deck.id
+            WHERE deck.deck_id = $1;",
+        deck_id
+    )
+    .fetch_all(&pool)
+    .await
+    .expect("couldn't fetch cards in deck")
+    .into_iter()
+    .map(|x| CardCount {
+        oracle_id: x.oracle_id,
+        name_full: x.name_full,
+        name_front: x.name_front,
+        name_back: x.name_back,
+        slug: x.slug,
+        scryfall_uri: x.scryfall_uri,
+        layout: x.layout,
+        rarity: x.rarity,
+        lowest_rarity: x.lowest_rarity,
+        lang: x.lang,
+        mana_cost_combined: x.mana_cost_combined,
+        mana_cost_front: x.mana_cost_front,
+        mana_cost_back: x.mana_cost_back,
+        cmc: x.cmc,
+        type_line_full: x.type_line_full,
+        type_line_front: x.type_line_front,
+        type_line_back: x.type_line_back,
+        oracle_text: x.oracle_text,
+        oracle_text_back: x.oracle_text_back,
+        colors: x.colors,
+        colors_back: x.colors_back,
+        color_identity: x.color_identity,
+        is_legal: x.is_legal,
+        is_legal_commander: x.is_legal_commander,
+        is_rebalanced: x.is_rebalanced,
+        image_small: x.image_small,
+        image_normal: x.image_normal,
+        image_large: x.image_large,
+        image_art_crop: x.image_art_crop,
+        image_border_crop: x.image_border_crop,
+        image_small_back: x.image_small_back,
+        image_normal_back: x.image_normal_back,
+        image_large_back: x.image_large_back,
+        image_art_crop_back: x.image_art_crop_back,
+        image_border_crop_back: x.image_border_crop_back,
+        count: Some(x.quantity),
+    })
+    .collect();
+
+    let deck = Deck {
+        //deck_id should really be NOT NULL in the database
+        deck_id: deck_info.deck_id.unwrap(),
+        url: deck_info.url,
+        username: deck_info.username,
+        date_created: deck_info.date_created,
+        date_updated: deck_info.date_updated,
+        commander: commander,
+        companion: companion,
+        color_identity: deck_info.color_identity,
+        decklist: deck_list,
+    };
+
+    Json(deck)
 }
 
 async fn card_slugs(State(AppState { pool }): State<AppState>) -> Json<Vec<Option<String>>> {
@@ -612,6 +780,19 @@ async fn top_commanders_for_card(
 }
 
 #[derive(serde::Serialize)]
+struct Deck {
+    deck_id: i32,
+    url: String,
+    username: String,
+    date_created: i64,
+    date_updated: i64,
+    commander: Card,
+    companion: Option<Card>,
+    color_identity: Vec<String>,
+    decklist: Vec<CardCount>,
+}
+
+#[derive(serde::Serialize, Debug)]
 struct Card {
     oracle_id: String,
     name_full: String,
