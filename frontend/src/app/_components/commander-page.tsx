@@ -1,6 +1,13 @@
-import { Card, TopCard } from './card-grid'
+import { Card } from './card-grid'
 
-export function CardPage({ card, children }: { card: TopCard; children: React.ReactNode }) {
+export type CardSlug = Card & {
+  total_decks: number
+  all_decks: number
+  rank: number
+  total_commander_decks_of_ci: number
+}
+
+export function CommanderPage({ card, children }: { card: CardSlug; children: React.ReactNode }) {
   return (
     <>
       <div
@@ -14,9 +21,10 @@ export function CardPage({ card, children }: { card: TopCard; children: React.Re
           {Math.floor((card.total_decks / card.total_commander_decks_of_ci) * 100)}% decks with this Color Identity
         </div> */}
         <div>
-          In {card.total_decks_with_card} of {card.total_decks_could_play} decks (
-          {Math.round((card.total_decks_with_card! * 10000) / card.total_decks_could_play!) / 100}%)
+          <span className="text-accent-color">{card.total_decks}</span> decks (
+          {Math.round((card.total_decks * 10000) / card.all_decks) / 100}%)
         </div>
+        <div>Rank #{card.rank}</div>
       </div>
       {children}
     </>

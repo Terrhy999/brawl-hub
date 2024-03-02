@@ -1,4 +1,4 @@
-import { Card, CardGridWithText } from '@/app/_components/card-grid'
+import CardGrid, { CardCount } from '@/app/_components/card-grid'
 import { colorCombinations } from '@/app/_utils/color-combinations'
 import { fetchJsonFromBrawlhub } from '@/app/_utils/fetch-json'
 
@@ -8,6 +8,18 @@ export async function generateStaticParams() {
 }
 
 export default async function Page({ params }: { params: { colorIdentity: string } }) {
-  const commandersOfColorIdentity = await fetchJsonFromBrawlhub<Card[]>(`commanders/${params.colorIdentity}`)
-  return <CardGridWithText cards={commandersOfColorIdentity} linkTo="commander" />
+  const commandersOfColorIdentity = await fetchJsonFromBrawlhub<CardCount[]>(`commanders/${params.colorIdentity}`)
+  return (
+    <CardGrid cards={commandersOfColorIdentity} linkTo="commander">
+      {CardText}
+    </CardGrid>
+  )
+}
+
+function CardText(card: CardCount) {
+  return (
+    <div className="text-center mt-1">
+      <div>{card.count} decks</div>
+    </div>
+  )
 }

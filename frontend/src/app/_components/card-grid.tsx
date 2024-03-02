@@ -37,6 +37,16 @@ export type Card = {
   image_large_back?: string | null
   image_art_crop_back?: string | null
   image_border_crop_back?: string | null
+  // count?: number | null
+}
+
+export type TopCard = Card & {
+  total_decks_with_card?: number
+  total_decks_could_play?: number
+  rank?: number
+}
+
+export type CardCount = Card & {
   count?: number | null
 }
 
@@ -54,7 +64,7 @@ export default async function CardGrid({
   linkTo = 'card',
   children,
 }: {
-  cards: Card[]
+  cards: Card[] | CardCount[] | TopCard[]
   linkTo?: LinkTarget
   children?: (...args: any[]) => React.ReactNode
 }) {
@@ -70,7 +80,13 @@ export default async function CardGrid({
   )
 }
 
-export async function CardGridWithText({ cards, linkTo = 'card' }: { cards: Card[]; linkTo?: LinkTarget }) {
+export async function CardGridWithText({
+  cards,
+  linkTo = 'card',
+}: {
+  cards: Card[] | CardCount[] | TopCard[]
+  linkTo?: LinkTarget
+}) {
   return (
     <CardGrid cards={cards} linkTo={linkTo}>
       {CardText}
@@ -88,11 +104,13 @@ export function CardImage({ card, className = '', size = 'normal', cardFace = 'f
   return <Image className={`rounded-[5%] ${className}`} src={src} alt={card.name_full} width={width} height={height} />
 }
 
-function CardText(card: Card, i: number): React.ReactNode {
+function CardText(card: TopCard, i: number): React.ReactNode {
   return (
     <div className="text-center">
       <div>Rank #{i + 1}</div>
-      <div>{card.count} decks</div>
+      <div>
+        In {card.total_decks_with_card} of {card.total_decks_could_play} decks ({Math.round(card.rank!)}%)
+      </div>
     </div>
   )
 }

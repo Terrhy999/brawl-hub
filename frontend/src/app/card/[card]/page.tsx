@@ -1,8 +1,9 @@
-import { CardPage, CardSlug } from '@/app/_components/card-page'
+import { CardSlug } from '@/app/_components/commander-page'
 import Link from 'next/link'
 import React from 'react'
 import { fetchJsonFromBrawlhub } from '@/app/_utils/fetch-json'
 import { Card, CardGridWithText } from '@/app/_components/card-grid'
+import { CardPage } from '@/app/_components/card-page'
 
 // export const dynamicParams = false
 // export async function generateStaticParams() {

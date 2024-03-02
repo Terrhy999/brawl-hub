@@ -34,5 +34,6 @@ SELECT
         ELSE (cc.total_decks_with_card * 100.0 / cc.total_decks_could_play)
     END AS rank
 FROM CardCounts cc
+ORDER BY rank DESC
 LIMIT 1000;
 EOF

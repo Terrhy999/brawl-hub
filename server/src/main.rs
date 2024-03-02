@@ -246,25 +246,40 @@ async fn card_slugs(State(AppState { pool }): State<AppState>) -> Json<Vec<Optio
 async fn card_by_slug(
     State(AppState { pool }): State<AppState>,
     Path(slug): Path<String>,
-) -> Json<CardBySlug> {
+) -> Json<TopCards> {
     let res = sqlx::query_as!(
-        CardBySlug,
-        "SELECT
-        card.*,
-        (
-            SELECT COUNT(DISTINCT decklist.deck_id)
-            FROM decklist
-            WHERE decklist.oracle_id = card.oracle_id
-        ) AS total_decks_with_card,
-        (
-            SELECT COUNT(DISTINCT deck.id)
-            FROM deck
-            WHERE deck.color_identity @> card.color_identity
-        ) AS total_decks_could_play
-    FROM
-        card
-    WHERE
-        card.slug = $1;",
+        TopCards,
+        r#"
+        WITH CardCounts AS (
+            SELECT
+                card.oracle_id,
+                (
+                    SELECT COUNT(DISTINCT decklist.deck_id)
+                    FROM decklist
+                    WHERE decklist.oracle_id = card.oracle_id
+                ) AS "total_decks_with_card!",
+                (
+                    SELECT COUNT(DISTINCT deck.id)
+                    FROM deck
+                    WHERE deck.color_identity @> card.color_identity
+                ) AS "total_decks_could_play!"
+            FROM
+                card
+            WHERE
+                card.slug = $1
+            )
+        SELECT
+            card.*,
+            cc."total_decks_with_card!"::int,
+            cc."total_decks_could_play!"::int,
+            CASE
+                WHEN cc."total_decks_could_play!" = 0 THEN 0
+                ELSE (cc."total_decks_with_card!" * 100.0 / cc."total_decks_could_play!")::float
+            END AS "rank!"
+        FROM
+            card
+        JOIN
+            CardCounts cc ON card.oracle_id = cc.oracle_id;"#,
         slug
     )
     .fetch_one(&pool)
@@ -400,7 +415,7 @@ async fn top_commanders_colorless(
 async fn top_cards_of_color(
     Path(color): Path<String>,
     State(AppState { pool }): State<AppState>,
-) -> Json<Vec<TopCardsOfColor>> {
+) -> Json<Vec<TopCards>> {
     // Right now 'num_decks_total' is the number of decks with this EXACT color_identity, it needs to be the number of decks that INCLUDE this color identity
     // Eg colors = 'U' 'num_decks_total' is the number of mono-blue decks, not the number of decks with 'U' in the color_identity
 
@@ -419,11 +434,11 @@ async fn top_cards_of_color(
     }
 
     let res = sqlx::query_as!(
-        TopCardsOfColor,
+        TopCards,
         "SELECT
             card.*,
             total_decks_could_play,
-            total_decks_with_card as count,
+            total_decks_with_card,
             rank
         FROM top_cards
         JOIN card
@@ -460,7 +475,7 @@ async fn top_commanders_of_color(
         not_colors.retain(|x| &char.to_ascii_uppercase().to_string() != x);
         colors.push(char.to_uppercase().to_string());
     }
-    println!("colors: {:#?} \n not_colors = {:#?}", colors, not_colors);
+    // println!("colors: {:#?} \n not_colors = {:#?}", colors, not_colors);
 
     let res = sqlx::query_as!(
         CardCount,
@@ -546,29 +561,22 @@ async fn top_commanders(State(AppState { pool }): State<AppState>) -> Json<Vec<C
 }
 
 #[debug_handler]
-async fn top_cards(State(AppState { pool }): State<AppState>) -> Json<Vec<CardBySlug>> {
+async fn top_cards(State(AppState { pool }): State<AppState>) -> Json<Vec<TopCards>> {
     // Used to display the top cards, ordered by the number of decks the card appears in
     // FIX: Should be ordered by (number of decks the card appears in / number of decks the card CAN appear in)
     let res = sqlx::query_as!(
-        CardBySlug,
-        "WITH CardCounts AS (
-            SELECT
-                card.*,
-                COUNT(DISTINCT deck.id) AS total_decks_could_play,
-                COUNT(DISTINCT decklist.deck_id) AS total_decks_with_card
-            FROM card
-            JOIN deck 
-              ON deck.color_identity @> card.color_identity
-            LEFT JOIN decklist 
-              ON card.oracle_id = decklist.oracle_id
-            GROUP BY
-                card.oracle_id
-          )
-          SELECT *
-          FROM CardCounts
-          ORDER BY (total_decks_with_card * 100 / NULLIF(total_decks_could_play, 0)) DESC,
-          total_decks_with_card DESC
-          LIMIT 100;
+        TopCards,
+        "SELECT
+        card.*,
+        total_decks_could_play,
+        total_decks_with_card,
+        rank
+    FROM top_cards
+    JOIN card
+    ON top_cards.oracle_id = card.oracle_id
+    ORDER BY (total_decks_with_card * 100 / NULLIF(total_decks_could_play, 0)) DESC,
+    total_decks_with_card DESC
+    LIMIT 100;
           "
     )
     .fetch_all(&pool)
@@ -754,23 +762,82 @@ async fn get_card(
 async fn top_commanders_for_card(
     Path(slug): Path<String>,
     State(AppState { pool }): State<AppState>,
-) -> Json<Vec<CardCount>> {
+) -> Json<Vec<TopCards>> {
     let res = sqlx::query_as!(
-        CardCount,
-        "SELECT card.*, commander_stats.count
-        FROM card
-        JOIN (
-            SELECT deck.commander, COUNT(deck.commander) as count
+        TopCards,
+        r#"WITH CommanderDecks AS (
+            SELECT
+                deck.commander AS commander_id,
+                COUNT(DISTINCT deck.id) AS "total_commander_decks!"
+            FROM
+                deck
+            GROUP BY
+                deck.commander
+            HAVING
+                COUNT(DISTINCT deck.id) >= 5
+        ),
+        CardInput AS (
+            SELECT card.oracle_id
             FROM card
-            JOIN decklist ON card.oracle_id = decklist.oracle_id
-            JOIN deck ON decklist.deck_id = deck.id
-            WHERE card.oracle_id = (
-                SELECT card.oracle_id FROM card WHERE card.slug = $1
-            )
-            GROUP BY deck.commander
-            ORDER BY COUNT(deck.commander) DESC
-        ) AS commander_stats ON card.oracle_id = commander_stats.commander
-        ",
+            WHERE card.slug = $1
+        )
+        SELECT
+            cd."total_commander_decks!"::int AS "total_decks_could_play!",
+            COUNT(DISTINCT deck.id)::int AS "total_decks_with_card!",
+            (COUNT(DISTINCT deck.id) * 100 / cd."total_commander_decks!")::float AS "rank!",
+            card.*
+        FROM
+            CommanderDecks cd
+        JOIN
+            deck ON cd.commander_id = deck.commander
+        JOIN
+            decklist ON deck.id = decklist.deck_id
+        JOIN
+            CardInput ci ON decklist.oracle_id = ci.oracle_id
+        JOIN
+            card ON cd.commander_id = card.oracle_id
+        GROUP BY
+            card.oracle_id,
+            card.name_full,
+            card.name_front,
+            card.name_back,
+            card.slug,
+            card.scryfall_uri,
+            card.layout,
+            card.rarity,
+            card.lowest_rarity,
+            card.lang,
+            card.mana_cost_combined,
+            card.mana_cost_front,
+            card.mana_cost_back,
+            card.cmc,
+            card.type_line_full,
+            card.type_line_front,
+            card.type_line_back,
+            card.oracle_text,
+            card.oracle_text_back,
+            card.colors,
+            card.colors_back,
+            card.color_identity,
+            card.is_legal,
+            card.is_legal_commander,
+            card.is_rebalanced,
+            card.image_small,
+            card.image_normal,
+            card.image_large,
+            card.image_art_crop,
+            card.image_border_crop,
+            card.image_small_back,
+            card.image_normal_back,
+            card.image_large_back,
+            card.image_art_crop_back,
+            card.image_border_crop_back,
+            cd.commander_id,
+            cd."total_commander_decks!"
+        ORDER BY
+            "rank!" DESC;
+        
+        "#,
         slug
     )
     .fetch_all(&pool)
@@ -997,7 +1064,7 @@ struct CommanderTopCard {
 }
 
 #[derive(Debug, serde::Serialize)]
-struct TopCardsOfColor {
+struct TopCards {
     oracle_id: String,
     name_full: String,
     name_front: String,
@@ -1034,8 +1101,8 @@ struct TopCardsOfColor {
     image_art_crop_back: Option<String>,
     image_border_crop_back: Option<String>,
     total_decks_could_play: i32,
-    count: i32,
-    rank: f32,
+    total_decks_with_card: i32,
+    rank: f64,
 }
 
 #[derive(Debug, serde::Serialize)]

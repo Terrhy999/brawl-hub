@@ -1,5 +1,5 @@
 import CardGrid, { Card } from '@/app/_components/card-grid'
-import { CardPage, CardSlug } from '@/app/_components/card-page'
+import { CommanderPage, CardSlug } from '@/app/_components/commander-page'
 import { fetchJsonFromBrawlhub } from '@/app/_utils/fetch-json'
 import { ClickableChip } from '@/app/_components/clickable-chip'
 import Link from 'next/link'
@@ -52,7 +52,7 @@ export default async function Page({ params }: { params: { commander: string } }
   ] as const
   return (
     <>
-      <CardPage card={commanderCard}>
+      <CommanderPage card={commanderCard}>
         <nav className="bg-bg-color sticky top-[--header-height] flex overflow-auto py-[10px] lg:max-w-[85%] lg:mx-auto">
           {sections.map((section, i) => (
             <ClickableChip key={i} className="mr-1" text={section[0]} href={`#${section[1]}`} />
@@ -71,7 +71,7 @@ export default async function Page({ params }: { params: { commander: string } }
             </div>
           ))}
         </div>
-      </CardPage>
+      </CommanderPage>
     </>
   )
 }
@@ -80,7 +80,7 @@ function CardText(card: TopCard) {
   return (
     <div className="text-center mt-1">
       <div>
-        {Math.floor(card.usage_in_commander)}% of {card.total_commander_decks} decks
+        {card.quantity} of {card.total_commander_decks} decks ({Math.floor(card.usage_in_commander)}%)
       </div>
       <div>{Math.floor(card.synergy)}% synergy</div>
     </div>
