@@ -18,8 +18,8 @@ struct AppState {
 
 #[tokio::main]
 async fn main() {
-    let database_url = "postgres://postgres:postgres@localhost/brawlhub";
-    // let database_url = "postgresql://doadmin:AVNS_FgHDMcJtn5rY81hMv-L@brawlhub-do-user-11250118-0.c.db.ondigitalocean.com:25060/defaultdb?sslmode=require";
+    // let database_url = "postgres://postgres:postgres@localhost/brawlhub";
+    let database_url = env!("DATABASE_URL");
     let state = AppState {
         pool: PgPoolOptions::new()
             .max_connections(5)
