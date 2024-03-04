@@ -1,11 +1,12 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+@import '../../public/mana-master/css/mana.min.css';
 
 :root {
-    --header-height: 56px;
+  --header-height: 56px;
 }
 
 html {
-    scroll-behavior: smooth;
+  scroll-behavior: smooth;
 }

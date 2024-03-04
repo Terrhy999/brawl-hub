@@ -5,6 +5,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
+use serde::Deserialize;
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
 use std::{env, net::SocketAddr};
 use tower_http::cors::CorsLayer;
@@ -17,10 +18,8 @@ struct AppState {
 
 #[tokio::main]
 async fn main() {
-    // let database_url = std::env::var("DATABASE_URL").expect("set DATABASE_URL env variable");
-    // println!("{}", database_url);
-    // let database_url = std::env::var("DATABASE_URL").expect("set DATABASE_URL env variable");
     let database_url = "postgres://postgres:postgres@localhost/brawlhub";
+    // let database_url = "postgresql://doadmin:AVNS_FgHDMcJtn5rY81hMv-L@brawlhub-do-user-11250118-0.c.db.ondigitalocean.com:25060/defaultdb?sslmode=require";
     let state = AppState {
         pool: PgPoolOptions::new()
             .max_connections(5)
@@ -29,18 +28,25 @@ async fn main() {
             .expect("Couldn't connect to db"),
     };
 
+    //Return types:
+    //CardSlug = Card + total_decks, all_decks, rank, total_commander_decks_of_ci
+    //CardCount = Card + count
+    //TopCards = Card + total_decks_with_card, total_decks_could_play, rank
+    //TopCardsForCommander = Card +
+
     let app = Router::new()
         .route("/commander_slugs", get(commander_slugs))
         .route("/card_slugs", get(card_slugs))
-        .route("/card/:slug", get(card_by_slug))
-        .route("/commander/:slug", get(commander_by_slug))
-        .route("/commanders/", get(top_commanders))
-        .route("/commanders/:colors", get(top_commanders_of_color))
-        .route("/commanders/colorless", get(top_commanders_colorless))
-        .route("/top_cards", get(top_cards))
-        .route("/top_cards/:colors", get(top_cards_of_color))
-        .route("/commander_top_cards/:oracle_id", get(commander_top_cards))
+        .route("/card/:slug", get(card_by_slug)) //TopCards
+        .route("/commander/:slug", get(commander_by_slug)) //CardSlug
+        .route("/commanders/", get(top_commanders)) //CardCount
+        .route("/commanders/:colors", get(top_commanders_of_color)) //CardCount
+        .route("/commanders/colorless", get(top_commanders_colorless)) //CardCount
+        .route("/top_cards", get(top_cards)) //TopCards
+        .route("/top_cards/:colors", get(top_cards_of_color)) //TopCards
+        .route("/commander_top_cards/:oracle_id", get(commander_top_cards)) //TopCardsForCommander
         .route(
+            //TopCards
             "/top_commanders_for_card/:slug",
             get(top_commanders_for_card),
         )
@@ -154,59 +160,76 @@ async fn deck_by_id(
     };
 
     let deck_list: Vec<CardCount> = sqlx::query_as!(
-        DecklistCard,
-        "SELECT card.*, decklist.is_companion, decklist.is_commander, decklist.quantity
+        CardCount,
+        r#"SELECT card.*, decklist.quantity::bigint AS "count?"
             FROM decklist
             JOIN card
             ON card.oracle_id = decklist.oracle_id
             JOIN deck
             ON decklist.deck_id = deck.id
-            WHERE deck.deck_id = $1;",
+            WHERE deck.deck_id = $1;"#,
         deck_id
     )
     .fetch_all(&pool)
     .await
-    .expect("couldn't fetch cards in deck")
-    .into_iter()
-    .map(|x| CardCount {
-        oracle_id: x.oracle_id,
-        name_full: x.name_full,
-        name_front: x.name_front,
-        name_back: x.name_back,
-        slug: x.slug,
-        scryfall_uri: x.scryfall_uri,
-        layout: x.layout,
-        rarity: x.rarity,
-        lowest_rarity: x.lowest_rarity,
-        lang: x.lang,
-        mana_cost_combined: x.mana_cost_combined,
-        mana_cost_front: x.mana_cost_front,
-        mana_cost_back: x.mana_cost_back,
-        cmc: x.cmc,
-        type_line_full: x.type_line_full,
-        type_line_front: x.type_line_front,
-        type_line_back: x.type_line_back,
-        oracle_text: x.oracle_text,
-        oracle_text_back: x.oracle_text_back,
-        colors: x.colors,
-        colors_back: x.colors_back,
-        color_identity: x.color_identity,
-        is_legal: x.is_legal,
-        is_legal_commander: x.is_legal_commander,
-        is_rebalanced: x.is_rebalanced,
-        image_small: x.image_small,
-        image_normal: x.image_normal,
-        image_large: x.image_large,
-        image_art_crop: x.image_art_crop,
-        image_border_crop: x.image_border_crop,
-        image_small_back: x.image_small_back,
-        image_normal_back: x.image_normal_back,
-        image_large_back: x.image_large_back,
-        image_art_crop_back: x.image_art_crop_back,
-        image_border_crop_back: x.image_border_crop_back,
-        count: Some(x.quantity),
-    })
-    .collect();
+    .expect("couldn't fetch cards in deck");
+
+    let mut top_cards = Decklist {
+        creatures: vec![],
+        instants: vec![],
+        sorceries: vec![],
+        artifacts: vec![],
+        enchantments: vec![],
+        planeswalkers: vec![],
+        lands: vec![],
+    };
+
+    for card in deck_list.into_iter() {
+        match &card {
+            t if t.type_line_front.to_ascii_lowercase().contains("creature")
+                && top_cards.creatures.len() < 50 =>
+            {
+                top_cards.creatures.push(card)
+            }
+            t if t.type_line_front.to_ascii_lowercase().contains("instant")
+                && top_cards.instants.len() < 50 =>
+            {
+                top_cards.instants.push(card)
+            }
+            t if t.type_line_front.to_ascii_lowercase().contains("sorcery")
+                && top_cards.sorceries.len() < 50 =>
+            {
+                top_cards.sorceries.push(card)
+            }
+            t if t
+                .type_line_front
+                .to_ascii_lowercase()
+                .contains("planeswalker")
+                && top_cards.planeswalkers.len() < 50 =>
+            {
+                top_cards.planeswalkers.push(card)
+            }
+            t if t
+                .type_line_front
+                .to_ascii_lowercase()
+                .contains("enchantment")
+                && top_cards.enchantments.len() < 50 =>
+            {
+                top_cards.enchantments.push(card)
+            }
+            t if t.type_line_front.to_ascii_lowercase().contains("land")
+                && top_cards.lands.len() < 50 =>
+            {
+                top_cards.lands.push(card)
+            }
+            t if t.type_line_front.to_ascii_lowercase().contains("artifact")
+                && top_cards.artifacts.len() < 50 =>
+            {
+                top_cards.artifacts.push(card)
+            }
+            _ => (),
+        };
+    }
 
     let deck = Deck {
         //deck_id should really be NOT NULL in the database
@@ -218,7 +241,7 @@ async fn deck_by_id(
         commander: commander,
         companion: companion,
         color_identity: deck_info.color_identity,
-        decklist: deck_list,
+        decklist: top_cards,
     };
 
     Json(deck)
@@ -590,9 +613,9 @@ async fn top_cards(State(AppState { pool }): State<AppState>) -> Json<Vec<TopCar
 async fn commander_top_cards(
     Path(oracle_id): Path<String>,
     State(AppState { pool }): State<AppState>,
-) -> Json<TopCardsForCommander2> {
+) -> Json<TopCardsForCommander> {
     let top_cards_for_commander = sqlx::query_as!(
-        TopCard2,
+        CommanderTopCard,
         "SELECT card.*, quantity, total_commander_decks, ci_quantity, total_commander_decks_of_ci FROM card
         JOIN (
             SELECT oracle_id, COUNT(oracle_id) as quantity FROM decklist
@@ -627,9 +650,9 @@ async fn commander_top_cards(
 
     let top_cards_for_commander = top_cards_for_commander
         .iter()
-        .map(TopCardWithSynergy::add_synergy);
+        .map(CommanderTopCardWithSynergy::add_synergy);
 
-    let mut top_cards = TopCardsForCommander2 {
+    let mut top_cards = TopCardsForCommander {
         creatures: vec![],
         instants: vec![],
         sorceries: vec![],
@@ -640,7 +663,7 @@ async fn commander_top_cards(
         lands: vec![],
     };
 
-    fn is_mana_artifact(card: &TopCardWithSynergy) -> bool {
+    fn is_mana_artifact(card: &CommanderTopCardWithSynergy) -> bool {
         card.type_line_full
             .to_ascii_lowercase()
             .contains("artifact")
@@ -856,10 +879,10 @@ struct Deck {
     commander: Card,
     companion: Option<Card>,
     color_identity: Vec<String>,
-    decklist: Vec<CardCount>,
+    decklist: Decklist,
 }
 
-#[derive(serde::Serialize, Debug)]
+#[derive(serde::Serialize, Debug, Deserialize)]
 struct Card {
     oracle_id: String,
     name_full: String,
@@ -898,7 +921,7 @@ struct Card {
     image_border_crop_back: Option<String>,
 }
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, Debug)]
 struct CardCount {
     oracle_id: String,
     name_full: String,
@@ -1023,47 +1046,6 @@ struct CardSlug {
 }
 
 #[derive(Debug, serde::Serialize)]
-struct CommanderTopCard {
-    oracle_id: String,
-    name_full: String,
-    name_front: String,
-    name_back: Option<String>,
-    slug: String,
-    scryfall_uri: String,
-    layout: String,
-    rarity: String,
-    lowest_rarity: String,
-    lang: String,
-    mana_cost_combined: Option<String>,
-    mana_cost_front: Option<String>,
-    mana_cost_back: Option<String>,
-    cmc: f32,
-    type_line_full: String,
-    type_line_front: String,
-    type_line_back: Option<String>,
-    oracle_text: Option<String>,
-    oracle_text_back: Option<String>,
-    colors: Option<Vec<String>>,
-    colors_back: Option<Vec<String>>,
-    color_identity: Vec<String>,
-    is_legal: bool,
-    is_legal_commander: bool,
-    is_rebalanced: bool,
-    image_small: String,
-    image_normal: String,
-    image_large: String,
-    image_art_crop: String,
-    image_border_crop: String,
-    image_small_back: Option<String>,
-    image_normal_back: Option<String>,
-    image_large_back: Option<String>,
-    image_art_crop_back: Option<String>,
-    image_border_crop_back: Option<String>,
-    num_decks_with_card: Option<i64>,
-    num_decks_total: Option<i64>,
-}
-
-#[derive(Debug, serde::Serialize)]
 struct TopCards {
     oracle_id: String,
     name_full: String,
@@ -1106,7 +1088,7 @@ struct TopCards {
 }
 
 #[derive(Debug, serde::Serialize)]
-struct TopCard2 {
+struct CommanderTopCard {
     oracle_id: String,
     name_full: String,
     name_front: String,
@@ -1149,7 +1131,7 @@ struct TopCard2 {
 }
 
 #[derive(Debug, serde::Serialize, Clone)]
-struct TopCardWithSynergy {
+struct CommanderTopCardWithSynergy {
     oracle_id: String,
     name_full: String,
     name_front: String,
@@ -1194,14 +1176,14 @@ struct TopCardWithSynergy {
     usage_in_color: f64,
 }
 
-impl TopCardWithSynergy {
-    fn add_synergy(other: &TopCard2) -> Self {
+impl CommanderTopCardWithSynergy {
+    fn add_synergy(other: &CommanderTopCard) -> Self {
         let usage_in_commander =
             (other.quantity.unwrap() as f64 / other.total_commander_decks.unwrap() as f64) * 100.00;
         let usage_in_color = (other.ci_quantity.unwrap() as f64
             / other.total_commander_decks_of_ci.unwrap() as f64)
             * 100.00;
-        TopCardWithSynergy {
+        CommanderTopCardWithSynergy {
             oracle_id: other.oracle_id.clone(),
             lang: other.lang.clone(),
             scryfall_uri: other.scryfall_uri.clone(),
@@ -1249,13 +1231,24 @@ impl TopCardWithSynergy {
 }
 
 #[derive(Debug, serde::Serialize)]
-struct TopCardsForCommander2 {
-    creatures: Vec<TopCardWithSynergy>,
-    instants: Vec<TopCardWithSynergy>,
-    sorceries: Vec<TopCardWithSynergy>,
-    utility_artifacts: Vec<TopCardWithSynergy>,
-    enchantments: Vec<TopCardWithSynergy>,
-    planeswalkers: Vec<TopCardWithSynergy>,
-    mana_artifacts: Vec<TopCardWithSynergy>,
-    lands: Vec<TopCardWithSynergy>,
+struct TopCardsForCommander {
+    creatures: Vec<CommanderTopCardWithSynergy>,
+    instants: Vec<CommanderTopCardWithSynergy>,
+    sorceries: Vec<CommanderTopCardWithSynergy>,
+    utility_artifacts: Vec<CommanderTopCardWithSynergy>,
+    enchantments: Vec<CommanderTopCardWithSynergy>,
+    planeswalkers: Vec<CommanderTopCardWithSynergy>,
+    mana_artifacts: Vec<CommanderTopCardWithSynergy>,
+    lands: Vec<CommanderTopCardWithSynergy>,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct Decklist {
+    creatures: Vec<CardCount>,
+    instants: Vec<CardCount>,
+    sorceries: Vec<CardCount>,
+    artifacts: Vec<CardCount>,
+    enchantments: Vec<CardCount>,
+    planeswalkers: Vec<CardCount>,
+    lands: Vec<CardCount>,
 }
