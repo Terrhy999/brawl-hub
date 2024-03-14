@@ -71,7 +71,7 @@ async fn deck_by_id(
 ) -> Json<Deck> {
     #[derive(Debug)]
     struct DeckInfo {
-        deck_id: Option<i32>,
+        ah_deck_id: Option<i32>,
         url: String,
         username: String,
         date_created: i64,
@@ -126,9 +126,9 @@ async fn deck_by_id(
     let deck_info: DeckInfo = sqlx::query_as!(
         DeckInfo,
         "SELECT 
-            deck_id, url, username, date_created, date_updated, commander, companion, color_identity 
+            ah_deck_id, url, username, date_created, date_updated, commander, companion, color_identity 
             FROM deck 
-            WHERE deck_id = $1;", deck_id).fetch_one(&pool).await.expect("couldn't fetch deck");
+            WHERE ah_deck_id = $1;", deck_id).fetch_one(&pool).await.expect("couldn't fetch deck");
 
     println!(
         "commander uuid: {}\ncompanion uuid: {:#?}",
@@ -167,7 +167,7 @@ async fn deck_by_id(
             ON card.oracle_id = decklist.oracle_id
             JOIN deck
             ON decklist.deck_id = deck.id
-            WHERE deck.deck_id = $1;"#,
+            WHERE deck.ah_deck_id = $1;"#,
         deck_id
     )
     .fetch_all(&pool)
@@ -233,7 +233,7 @@ async fn deck_by_id(
 
     let deck = Deck {
         //deck_id should really be NOT NULL in the database
-        deck_id: deck_info.deck_id.unwrap(),
+        deck_id: deck_info.ah_deck_id.unwrap(),
         url: deck_info.url,
         username: deck_info.username,
         date_created: deck_info.date_created,

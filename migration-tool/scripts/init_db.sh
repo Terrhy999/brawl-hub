@@ -55,4 +55,9 @@ CREATE TABLE IF NOT EXISTS decklist (
     is_commander bool NOT NULL DEFAULT false,
     quantity integer NOT NULL,
     PRIMARY KEY (oracle_id, deck_id)
-)"
+);
+CREATE TABLE IF NOT EXISTS scryfall_id (
+    oracle_id uuid REFERENCES card(oracle_id),
+    scryfall_id uuid PRIMARY KEY NOT NULL
+);
+"
