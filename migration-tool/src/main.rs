@@ -8,29 +8,130 @@ use chrono::prelude::*;
 use futures::future::join_all;
 use std::{collections::HashMap, fmt::Debug, fs, str::FromStr};
 use uuid::Uuid;
-
-const DATABASE_URL: &str = "postgres://postgres:postgres@localhost/brawlhub";
+use dotenv::dotenv;
 
 #[tokio::main]
 async fn main() {
+    dotenv().ok();
+    let database_url = std::env::var("DATABASE_URL").expect("set DATABASE_URL env variable");
     let pool = PgPoolOptions::new()
         .max_connections(5)
-        .connect(DATABASE_URL)
+        .connect(&database_url)
         .await
         .expect("couldn't connect to db");
+}
 
-    // let decks = get_aetherhub_decks(100, 800).await;
-    // for deck in decks {
-    //     migrate_aetherhub_decklists(&pool, &deck).await
+async fn populate_total_decks_per_card_table(pool: &Pool<Postgres>) {
+    let cards = sqlx::query!("SELECT DISTINCT oracle_id FROM card")
+        .fetch_all(pool)
+        .await
+        .expect("fetch all oracle_ids");
+
+    println!("CARDS {}", cards.len());
+    let mut count = 0;
+
+    for card in cards {
+        count = count + 1;
+        println!("COUNT {}", count);
+        let oracle_id = card.oracle_id;
+
+        let total_decks: i32 = sqlx::query_scalar!(
+            "SELECT COUNT(DISTINCT deck_id) FROM decklist WHERE oracle_id = $1",
+            oracle_id
+        )
+        .fetch_one(pool)
+        .await
+        .expect("get count of decks with card")
+        .expect("get count of decks with card")
+        .try_into()
+        .unwrap();
+
+        sqlx::query!(
+            "INSERT INTO total_decks_per_card (oracle_id, total_decks) VALUES ($1, $2)",
+            oracle_id,
+            total_decks
+        )
+        .execute(pool)
+        .await
+        .expect("insert into total_decks_per_card");
+    }
+}
+
+async fn populate_total_decks_per_color_identity_table(pool: &Pool<Postgres>) {
+    // #[derive(Debug)]
+    // struct Record {
+    //     color_identity: Vec<String>,
+    //     // Add other fields as needed
     // }
-    // migrate_scryfall_alchemy_cards(&pool).await;
-    // populate_scryfall_id_table(&pool).await;
-    for page in 72..130 {
-        println!("PAGE {page}");
-        let decks = get_moxfield_decks(page).await;
-        for deck in decks {
-            migrate_moxfield_decklists(&pool, &deck).await;
-        }
+
+    // let color_identities = sqlx::query!("SELECT DISTINCT color_identity FROM deck")
+    //     .fetch_all(pool)
+    //     .await
+    //     .expect("fetch all color_identities that have a deck")
+    //     .into_iter();
+
+        // Manually defined color identity combinations
+        let color_identities = vec![
+            vec![],
+            vec!["B"],
+            vec!["G"],
+            vec!["R"],
+            vec!["U"],
+            vec!["W"],
+            vec!["B", "G"],
+            vec!["B", "R"],
+            vec!["B", "U"],
+            vec!["B", "W"],
+            vec!["G", "R"],
+            vec!["G", "U"],
+            vec!["G", "W"],
+            vec!["R", "U"],
+            vec!["R", "W"],
+            vec!["U", "W"],
+            vec!["B", "G", "R"],
+            vec!["B", "G", "U"],
+            vec!["B", "G", "W"],
+            vec!["B", "R", "U"],
+            vec!["B", "R", "W"],
+            vec!["B", "U", "W"],
+            vec!["G", "R", "U"],
+            vec!["G", "R", "W"],
+            vec!["G", "U", "W"],
+            vec!["R", "U", "W"],
+            vec!["B", "G", "R", "U"],
+            vec!["B", "G", "R", "W"],
+            vec!["B", "G", "U", "W"],
+            vec!["B", "R", "U", "W"],
+            vec!["G", "R", "U", "W"],
+            vec!["B", "G", "R", "U", "W"],
+        ];
+
+    for color_identity in color_identities {
+
+        // let color_identity: Vec<String> = row.color_identity.iter().map(|s| s.clone()).collect();
+        // println!("{:#?}", color_identity);
+
+        let color_identity: Vec<String> = color_identity.iter().map(|s| s.to_string()).collect();
+
+        let total_decks: i32 = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM deck WHERE color_identity::text[] @> $1",
+            &color_identity
+        )
+        .fetch_one(pool)
+        .await
+        .expect("get number of decks of color_identity")
+        .expect("get number of decks of color_identity")
+        .try_into()
+        .unwrap();
+
+        sqlx::query!(
+            "INSERT INTO total_decks_with_color_identity (color_identity, total_decks) VALUES ($1, $2)",
+            &color_identity,
+            total_decks
+        )
+        .execute(pool)
+        .await
+        .expect("insert into total_decks_with_color_identity");
     }
 }
 
@@ -340,7 +441,14 @@ async fn migrate_moxfield_decklists(pool: &Pool<Postgres>, deck: &MoxfieldDeck) 
         .await
         .expect("couldn't read reponse body");
 
-    let json: Response = serde_json::from_str(&decklist).expect("couldn't deserialize json");
+    let json: Result<Response, _> = serde_json::from_str(&decklist);
+    let json = match json {
+        Ok(json) => json,
+        Err(err) => {
+            eprintln!("Couldn't deserialize JSON: {:?}", err);
+            return; // Exit the function early with an error message
+        }
+    };
 
     let mainboard = json.boards.mainboard.cards;
 
@@ -377,7 +485,6 @@ async fn migrate_moxfield_decklists(pool: &Pool<Postgres>, deck: &MoxfieldDeck) 
                 OR (unaccent(name_front) = unaccent($1) AND layout IN ('transform','modal_dfc', 'adventure'))",
                 name
             ).fetch_one(pool).await;
-            
             // let id = match id {
             //     Ok(val) => {
             //         Ok(val)
@@ -403,25 +510,18 @@ async fn migrate_moxfield_decklists(pool: &Pool<Postgres>, deck: &MoxfieldDeck) 
 
     });
 
+    let commander_id = json.boards.commanders.cards.values().nth(0);
 
-    let commander_id = json
-        .boards
-        .commanders
-        .cards
-        .values()
-        .nth(0);
+    if commander_id.is_none() {
+        println!("no commander in commander board, skipping");
+        return;
+    }
 
-        if commander_id.is_none() {
-            println!("no commander in commander board, skipping");
-            return;
-        }
-
-        let commander_id = commander_id.expect("no commander in commander board")
+    let commander_id = commander_id
+        .expect("no commander in commander board")
         .card
         .scryfall_id
         .clone();
-
-
 
     let companion_id = json
         .boards
@@ -442,10 +542,10 @@ async fn migrate_moxfield_decklists(pool: &Pool<Postgres>, deck: &MoxfieldDeck) 
         return;
     }
 
-    let commander_id = commander_id.expect("couln't fetch oracle_id of commander")
-    .oracle_id
-    .expect("no oracle_id for commander");
-
+    let commander_id = commander_id
+        .expect("couln't fetch oracle_id of commander")
+        .oracle_id
+        .expect("no oracle_id for commander");
 
     let companion_id = if companion_id.is_some() {
         Some(
@@ -531,8 +631,7 @@ async fn migrate_moxfield_decklists(pool: &Pool<Postgres>, deck: &MoxfieldDeck) 
             VALUES
                 ($1, $2, $3, $4, $5)
             ON CONFLICT (oracle_id, deck_id) DO NOTHING
-            "
-            ,
+            ",
             card.id,
             deck_id,
             is_companion,
@@ -564,7 +663,10 @@ async fn get_moxfield_decks(page: i32) -> Vec<MoxfieldDeck> {
         .expect("couldn't read response body");
 
     let json: Response = serde_json::from_str(&res).expect("deserialize moxfield res");
-    json.data.into_iter().filter(|res| res.visibility != "deleted").collect()
+    json.data
+        .into_iter()
+        .filter(|res| res.visibility != "deleted")
+        .collect()
 }
 
 async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck) {
@@ -710,7 +812,7 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
                 color_identity: res.color_identity,
             })
         } else {
-            eprintln!("Error for card {}", card.name);
+            eprintln!("Error for card {}, couldn't find oracle_id", card.name);
             None
         }
     });

@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 
-sudo -i -u postgres -H -- psql -d brawlhub -h localhost -c "CREATE TABLE IF NOT EXISTS card (
+cd "$(dirname "$0")"
+set -o allexport
+source ../.env
+set +o allexport
+
+sudo -i PGPASSWORD=$PGPASSWORD psql -U $PGUSER -h $PGHOST -p $PGPORT -d $PGDATABASE --set=sslmode=require -c "CREATE TABLE IF NOT EXISTS card (
     oracle_id uuid NOT NULL PRIMARY KEY,
     name_full text NOT NULL,
     name_front text NOT NULL,

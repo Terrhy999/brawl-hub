@@ -9,3 +9,4 @@ server/query
 brawlhub.tar.gz
 Dockerfile
 NOTES.md
+test.pgsql
