@@ -5,10 +5,16 @@ use slug::slugify;
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
 // use sqlx::types::Uuid;
 use chrono::prelude::*;
-use futures::future::join_all;
-use std::{collections::HashMap, fmt::Debug, fs, str::FromStr};
-use uuid::Uuid;
 use dotenv::dotenv;
+use futures::future::join_all;
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    fs::{self, remove_file, File},
+    io,
+    str::FromStr,
+};
+use uuid::Uuid;
 
 #[tokio::main]
 async fn main() {
@@ -19,6 +25,79 @@ async fn main() {
         .connect(&database_url)
         .await
         .expect("couldn't connect to db");
+
+    update_default_cards().await;
+    migrate_scryfall_alchemy_cards(&pool).await;
+    populate_scryfall_id_table(&pool).await;
+    for page in 1..10 {
+        println!("Page {} of Moxfield", page);
+        for deck in get_moxfield_decks(page).await {
+            migrate_moxfield_decklists(&pool, &deck).await;
+        }
+    }
+    for decks in 0..10 {
+        println!("Decks {} - {} of Aetherhub", decks*50, (decks+1)*50);
+        for deck in get_aetherhub_decks(decks*50, 50).await {
+            migrate_aetherhub_decklists(&pool, &deck).await;
+        }
+    }
+    populate_total_decks_per_card_table(&pool).await;
+    populate_total_decks_per_color_identity_table(&pool).await;
+}
+
+async fn update_default_cards() -> () {
+    #[derive(Serialize, Deserialize, Debug, Clone)]
+    struct Response {
+        object: String,
+        id: String,
+        r#type: String,
+        updated_at: chrono::DateTime<Utc>,
+        uri: String,
+        name: String,
+        description: String,
+        size: u64,
+        download_uri: String,
+        content_type: String,
+        content_encoding: String,
+    }
+
+    let url = "https://api.scryfall.com/bulk-data/default-cards";
+    let res = reqwest::Client::new()
+        .get(url)
+        .header("Content-Type", "application/json")
+        .send()
+        .await
+        .expect("send GET request to download default-cards.json")
+        .text()
+        .await
+        .expect("serialize default-cards API response as text");
+
+    let json: Result<Response, _> = serde_json::from_str(&res);
+    let json = match json {
+        Ok(json) => json,
+        Err(err) => {
+            eprintln!("Couldn't deserialize JSON: {:?}", err);
+            return; // Exit the function early with an error message
+        }
+    };
+
+    let download_uri = json.download_uri.as_str();
+    let mut res = reqwest::get(download_uri)
+        .await
+        .expect("send GET request for download_uri")
+        .text()
+        .await
+        .expect("serialize default-cards.json as text");
+    let mut out =
+        File::create("new-default-cards.json").expect("create new-default-cards.json file");
+    io::copy(&mut res.as_bytes(), &mut out).expect("copy default-cards.json to file");
+    match remove_file("default-cards.json") {
+        Ok(_) => println!("Old default-cards.json removed"),
+        Err(_) => println!("No previous default-cards.json found"),
+    }
+    std::fs::rename("new-default-cards.json", "default-cards.json").expect("rename new-default-cards.json to default-cards.json");
+
+    println!("Updated default-cards.json");
 }
 
 async fn populate_total_decks_per_card_table(pool: &Pool<Postgres>) {
@@ -27,12 +106,11 @@ async fn populate_total_decks_per_card_table(pool: &Pool<Postgres>) {
         .await
         .expect("fetch all oracle_ids");
 
-    println!("CARDS {}", cards.len());
     let mut count = 0;
 
-    for card in cards {
+    for card in &cards {
         count = count + 1;
-        println!("COUNT {}", count);
+        // println!("COUNT {}", count);
         let oracle_id = card.oracle_id;
 
         let total_decks: i32 = sqlx::query_scalar!(
@@ -47,7 +125,8 @@ async fn populate_total_decks_per_card_table(pool: &Pool<Postgres>) {
         .unwrap();
 
         sqlx::query!(
-            "INSERT INTO total_decks_per_card (oracle_id, total_decks) VALUES ($1, $2)",
+            "INSERT INTO total_decks_per_card (oracle_id, total_decks) VALUES ($1, $2)
+            ON CONFLICT (oracle_id) DO UPDATE SET total_decks = $2",
             oracle_id,
             total_decks
         )
@@ -55,59 +134,46 @@ async fn populate_total_decks_per_card_table(pool: &Pool<Postgres>) {
         .await
         .expect("insert into total_decks_per_card");
     }
+    println!("Updated total_decks_per_card with {} cards", cards.len());
 }
 
 async fn populate_total_decks_per_color_identity_table(pool: &Pool<Postgres>) {
-    // #[derive(Debug)]
-    // struct Record {
-    //     color_identity: Vec<String>,
-    //     // Add other fields as needed
-    // }
-
-    // let color_identities = sqlx::query!("SELECT DISTINCT color_identity FROM deck")
-    //     .fetch_all(pool)
-    //     .await
-    //     .expect("fetch all color_identities that have a deck")
-    //     .into_iter();
-
-        // Manually defined color identity combinations
-        let color_identities = vec![
-            vec![],
-            vec!["B"],
-            vec!["G"],
-            vec!["R"],
-            vec!["U"],
-            vec!["W"],
-            vec!["B", "G"],
-            vec!["B", "R"],
-            vec!["B", "U"],
-            vec!["B", "W"],
-            vec!["G", "R"],
-            vec!["G", "U"],
-            vec!["G", "W"],
-            vec!["R", "U"],
-            vec!["R", "W"],
-            vec!["U", "W"],
-            vec!["B", "G", "R"],
-            vec!["B", "G", "U"],
-            vec!["B", "G", "W"],
-            vec!["B", "R", "U"],
-            vec!["B", "R", "W"],
-            vec!["B", "U", "W"],
-            vec!["G", "R", "U"],
-            vec!["G", "R", "W"],
-            vec!["G", "U", "W"],
-            vec!["R", "U", "W"],
-            vec!["B", "G", "R", "U"],
-            vec!["B", "G", "R", "W"],
-            vec!["B", "G", "U", "W"],
-            vec!["B", "R", "U", "W"],
-            vec!["G", "R", "U", "W"],
-            vec!["B", "G", "R", "U", "W"],
-        ];
+    let color_identities = vec![
+        vec![],
+        vec!["B"],
+        vec!["G"],
+        vec!["R"],
+        vec!["U"],
+        vec!["W"],
+        vec!["B", "G"],
+        vec!["B", "R"],
+        vec!["B", "U"],
+        vec!["B", "W"],
+        vec!["G", "R"],
+        vec!["G", "U"],
+        vec!["G", "W"],
+        vec!["R", "U"],
+        vec!["R", "W"],
+        vec!["U", "W"],
+        vec!["B", "G", "R"],
+        vec!["B", "G", "U"],
+        vec!["B", "G", "W"],
+        vec!["B", "R", "U"],
+        vec!["B", "R", "W"],
+        vec!["B", "U", "W"],
+        vec!["G", "R", "U"],
+        vec!["G", "R", "W"],
+        vec!["G", "U", "W"],
+        vec!["R", "U", "W"],
+        vec!["B", "G", "R", "U"],
+        vec!["B", "G", "R", "W"],
+        vec!["B", "G", "U", "W"],
+        vec!["B", "R", "U", "W"],
+        vec!["G", "R", "U", "W"],
+        vec!["B", "G", "R", "U", "W"],
+    ];
 
     for color_identity in color_identities {
-
         // let color_identity: Vec<String> = row.color_identity.iter().map(|s| s.clone()).collect();
         // println!("{:#?}", color_identity);
 
@@ -125,7 +191,8 @@ async fn populate_total_decks_per_color_identity_table(pool: &Pool<Postgres>) {
         .unwrap();
 
         sqlx::query!(
-            "INSERT INTO total_decks_with_color_identity (color_identity, total_decks) VALUES ($1, $2)",
+            "INSERT INTO total_decks_with_color_identity (color_identity, total_decks) VALUES ($1, $2)
+            ON CONFLICT (color_identity) DO UPDATE SET total_decks = $2",
             &color_identity,
             total_decks
         )
@@ -133,6 +200,7 @@ async fn populate_total_decks_per_color_identity_table(pool: &Pool<Postgres>) {
         .await
         .expect("insert into total_decks_with_color_identity");
     }
+    println!("Updated total_decks_with_color_identity table")
 }
 
 async fn migrate_scryfall_alchemy_cards(pool: &Pool<Postgres>) {
@@ -218,10 +286,10 @@ async fn migrate_scryfall_alchemy_cards(pool: &Pool<Postgres>) {
         .collect();
 
     for card in cards {
-        println!(
-            "Insert {}, {} into brawlhub.card",
-            card.name_full, card.oracle_id
-        );
+        // println!(
+        //     "Insert {}, {} into brawlhub.card",
+        //     card.name_full, card.oracle_id
+        // );
         sqlx::query_as!(
             Card,
             "INSERT INTO card(
@@ -322,6 +390,8 @@ async fn migrate_scryfall_alchemy_cards(pool: &Pool<Postgres>) {
         .await
         .expect("couldn't insert");
     }
+
+    println!("All new cards added to database")
 }
 
 async fn populate_scryfall_id_table(pool: &Pool<Postgres>) -> () {
@@ -349,7 +419,7 @@ async fn populate_scryfall_id_table(pool: &Pool<Postgres>) -> () {
 
             if exists {
                 sqlx::query!(
-                    "INSERT INTO scryfall_id (scryfall_id, oracle_id) VALUES ($1, $2)",
+                    "INSERT INTO scryfall_id (scryfall_id, oracle_id) VALUES ($1, $2) ON CONFLICT (scryfall_id) DO NOTHING",
                     Uuid::parse_str(&id.id).unwrap(),
                     Uuid::parse_str(oracle_id).unwrap()
                 )
@@ -358,10 +428,11 @@ async fn populate_scryfall_id_table(pool: &Pool<Postgres>) -> () {
                 .expect("couldn't insert id's into db");
 
                 count = count + 1;
-                println!("{} - {} : {}", count, id.oracle_id.clone().unwrap(), id.id)
+                // println!("{} - {} : {}", count, id.oracle_id.clone().unwrap(), id.id)
             }
         }
     }
+    println!("Populated ScryfallID table");
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -430,7 +501,7 @@ async fn migrate_moxfield_decklists(pool: &Pool<Postgres>, deck: &MoxfieldDeck) 
     }
 
     let request_url = format!("https://api2.moxfield.com/v3/decks/all/{}", deck.public_id);
-    println!("{}", request_url);
+    // println!("{}", request_url);
     let decklist = reqwest::Client::new()
         .get(request_url)
         .header("Content-Type", "application/json")
@@ -642,6 +713,7 @@ async fn migrate_moxfield_decklists(pool: &Pool<Postgres>, deck: &MoxfieldDeck) 
         .await
         .expect("insert decklist into db");
     }
+    println!("Moxfield Deck {} Inserted", deck_id);
 }
 
 async fn get_moxfield_decks(page: i32) -> Vec<MoxfieldDeck> {
@@ -894,6 +966,7 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
         .await
         .expect("insert card failed");
     }
+    println!("Aetherhub Deck {} inserted", deck_id.id);
 }
 
 async fn get_aetherhub_decks(start: i32, length: i32) -> Vec<AetherHubDeck> {
