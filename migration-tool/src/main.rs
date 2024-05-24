@@ -1,4 +1,4 @@
-// #![allow(unused)]
+#![allow(unused)]
 // use postgres::{Client, NoTls};
 use serde::{Deserialize, Serialize};
 use slug::slugify;
@@ -7,10 +7,14 @@ use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
 use chrono::prelude::*;
 use dotenv::dotenv;
 use futures::future::join_all;
-use std::{collections::HashMap, fmt::Debug, fs};
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    fs::{self, remove_file, File},
+    io,
+    str::FromStr,
+};
 use uuid::Uuid;
-
-const DATABASE_URL: &str = "postgres://postgres:postgres@localhost/brawlhub";
 
 #[tokio::main]
 async fn main() {
@@ -22,11 +26,181 @@ async fn main() {
         .await
         .expect("couldn't connect to db");
 
-    // let decks = get_aetherhub_decks(100, 800).await;
-    // for deck in decks {
-    //     migrate_aetherhub_decklists(&pool, &deck).await
-    // }
+    update_default_cards().await;
     migrate_scryfall_alchemy_cards(&pool).await;
+    populate_scryfall_id_table(&pool).await;
+    for page in 1..10 {
+        println!("Page {} of Moxfield", page);
+        for deck in get_moxfield_decks(page).await {
+            migrate_moxfield_decklists(&pool, &deck).await;
+        }
+    }
+    for decks in 0..10 {
+        println!("Decks {} - {} of Aetherhub", decks*50, (decks+1)*50);
+        for deck in get_aetherhub_decks(decks*50, 50).await {
+            migrate_aetherhub_decklists(&pool, &deck).await;
+        }
+    }
+    populate_total_decks_per_card_table(&pool).await;
+    populate_total_decks_per_color_identity_table(&pool).await;
+}
+
+async fn update_default_cards() -> () {
+    #[derive(Serialize, Deserialize, Debug, Clone)]
+    struct Response {
+        object: String,
+        id: String,
+        r#type: String,
+        updated_at: chrono::DateTime<Utc>,
+        uri: String,
+        name: String,
+        description: String,
+        size: u64,
+        download_uri: String,
+        content_type: String,
+        content_encoding: String,
+    }
+
+    let url = "https://api.scryfall.com/bulk-data/default-cards";
+    let res = reqwest::Client::new()
+        .get(url)
+        .header("Content-Type", "application/json")
+        .send()
+        .await
+        .expect("send GET request to download default-cards.json")
+        .text()
+        .await
+        .expect("serialize default-cards API response as text");
+
+    let json: Result<Response, _> = serde_json::from_str(&res);
+    let json = match json {
+        Ok(json) => json,
+        Err(err) => {
+            eprintln!("Couldn't deserialize JSON: {:?}", err);
+            return; // Exit the function early with an error message
+        }
+    };
+
+    let download_uri = json.download_uri.as_str();
+    let mut res = reqwest::get(download_uri)
+        .await
+        .expect("send GET request for download_uri")
+        .text()
+        .await
+        .expect("serialize default-cards.json as text");
+    let mut out =
+        File::create("new-default-cards.json").expect("create new-default-cards.json file");
+    io::copy(&mut res.as_bytes(), &mut out).expect("copy default-cards.json to file");
+    match remove_file("default-cards.json") {
+        Ok(_) => println!("Old default-cards.json removed"),
+        Err(_) => println!("No previous default-cards.json found"),
+    }
+    std::fs::rename("new-default-cards.json", "default-cards.json").expect("rename new-default-cards.json to default-cards.json");
+
+    println!("Updated default-cards.json");
+}
+
+async fn populate_total_decks_per_card_table(pool: &Pool<Postgres>) {
+    let cards = sqlx::query!("SELECT DISTINCT oracle_id FROM card")
+        .fetch_all(pool)
+        .await
+        .expect("fetch all oracle_ids");
+
+    let mut count = 0;
+
+    for card in &cards {
+        count = count + 1;
+        // println!("COUNT {}", count);
+        let oracle_id = card.oracle_id;
+
+        let total_decks: i32 = sqlx::query_scalar!(
+            "SELECT COUNT(DISTINCT deck_id) FROM decklist WHERE oracle_id = $1",
+            oracle_id
+        )
+        .fetch_one(pool)
+        .await
+        .expect("get count of decks with card")
+        .expect("get count of decks with card")
+        .try_into()
+        .unwrap();
+
+        sqlx::query!(
+            "INSERT INTO total_decks_per_card (oracle_id, total_decks) VALUES ($1, $2)
+            ON CONFLICT (oracle_id) DO UPDATE SET total_decks = $2",
+            oracle_id,
+            total_decks
+        )
+        .execute(pool)
+        .await
+        .expect("insert into total_decks_per_card");
+    }
+    println!("Updated total_decks_per_card with {} cards", cards.len());
+}
+
+async fn populate_total_decks_per_color_identity_table(pool: &Pool<Postgres>) {
+    let color_identities = vec![
+        vec![],
+        vec!["B"],
+        vec!["G"],
+        vec!["R"],
+        vec!["U"],
+        vec!["W"],
+        vec!["B", "G"],
+        vec!["B", "R"],
+        vec!["B", "U"],
+        vec!["B", "W"],
+        vec!["G", "R"],
+        vec!["G", "U"],
+        vec!["G", "W"],
+        vec!["R", "U"],
+        vec!["R", "W"],
+        vec!["U", "W"],
+        vec!["B", "G", "R"],
+        vec!["B", "G", "U"],
+        vec!["B", "G", "W"],
+        vec!["B", "R", "U"],
+        vec!["B", "R", "W"],
+        vec!["B", "U", "W"],
+        vec!["G", "R", "U"],
+        vec!["G", "R", "W"],
+        vec!["G", "U", "W"],
+        vec!["R", "U", "W"],
+        vec!["B", "G", "R", "U"],
+        vec!["B", "G", "R", "W"],
+        vec!["B", "G", "U", "W"],
+        vec!["B", "R", "U", "W"],
+        vec!["G", "R", "U", "W"],
+        vec!["B", "G", "R", "U", "W"],
+    ];
+
+    for color_identity in color_identities {
+        // let color_identity: Vec<String> = row.color_identity.iter().map(|s| s.clone()).collect();
+        // println!("{:#?}", color_identity);
+
+        let color_identity: Vec<String> = color_identity.iter().map(|s| s.to_string()).collect();
+
+        let total_decks: i32 = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM deck WHERE color_identity::text[] @> $1",
+            &color_identity
+        )
+        .fetch_one(pool)
+        .await
+        .expect("get number of decks of color_identity")
+        .expect("get number of decks of color_identity")
+        .try_into()
+        .unwrap();
+
+        sqlx::query!(
+            "INSERT INTO total_decks_with_color_identity (color_identity, total_decks) VALUES ($1, $2)
+            ON CONFLICT (color_identity) DO UPDATE SET total_decks = $2",
+            &color_identity,
+            total_decks
+        )
+        .execute(pool)
+        .await
+        .expect("insert into total_decks_with_color_identity");
+    }
+    println!("Updated total_decks_with_color_identity table")
 }
 
 async fn migrate_scryfall_alchemy_cards(pool: &Pool<Postgres>) {
@@ -42,8 +216,8 @@ async fn migrate_scryfall_alchemy_cards(pool: &Pool<Postgres>) {
             ("uncommon", _) => false,
             ("rare", "common") | ("rare", "uncommon") => true,
             ("rare", _) => false,
-            ("mythic", "rare") | ("mythic", "uncommon") | ("mythic" , "common") => true,
-            _ => false
+            ("mythic", "rare") | ("mythic", "uncommon") | ("mythic", "common") => true,
+            _ => false,
         }
     }
 
@@ -58,20 +232,24 @@ async fn migrate_scryfall_alchemy_cards(pool: &Pool<Postgres>) {
         "augment",
         "host",
         "art_series",
-        "reversible_card"
+        "reversible_card",
     ];
 
     let scryfall_cards: Vec<ScryfallCard> = scryfall_cards
         .into_iter()
         .filter(|card| {
-            card.games().contains(&String::from("arena")) && !unwanted_layouts.contains(&card.layout().as_str())})
+            card.games().contains(&String::from("arena"))
+                && !unwanted_layouts.contains(&card.layout().as_str())
+        })
         .collect();
 
     let mut unique_scryfall_cards: HashMap<String, ScryfallCard> = HashMap::new();
 
     scryfall_cards.into_iter().for_each(|mut card| {
         card.set_lowest_rarity(card.rarity());
-        if card.rarity() != card.lowest_rarity() {println!("rarities don't match");}
+        if card.rarity() != card.lowest_rarity() {
+            println!("rarities don't match");
+        }
         let (oracle_id, released_at) = (card.oracle_id(), card.released_at());
         let new_released_at = released_at;
 
@@ -83,10 +261,9 @@ async fn migrate_scryfall_alchemy_cards(pool: &Pool<Postgres>) {
                 }
 
                 // Update lowest_rarity if it's empty or the new card has a lower rarity
-            if is_lower_rarity(&existing_card.lowest_rarity(), &card.rarity()) {
-                existing_card.set_lowest_rarity(card.rarity());
-            }            
-
+                if is_lower_rarity(&existing_card.lowest_rarity(), &card.rarity()) {
+                    existing_card.set_lowest_rarity(card.rarity());
+                }
             })
             .or_insert(card);
     });
@@ -103,26 +280,16 @@ async fn migrate_scryfall_alchemy_cards(pool: &Pool<Postgres>) {
         .collect();
     unique_scryfall_cards.retain(|_, card| !alchemy_card_names.contains(&card.name().to_string()));
 
-    // unique_scryfall_cards
-    //     .into_iter()
-    //     .map(|(oracle_id, mut card)| {
-    //         if card.is_rebalanced() {
-    //             card.name = card.name.strip_prefix("A-")
-    //         }
-    //     });
-
-    //need to remove the A- from these alchemy cards because i'm searching by non-alchemy names
-
     let cards: Vec<Card> = unique_scryfall_cards
         .into_iter()
         .map(|(oracle_id, scryfall_card)| Card::from(scryfall_card))
         .collect();
 
     for card in cards {
-        println!(
-            "Insert {}, {} into brawlhub.card",
-            card.name_full, card.oracle_id
-        );
+        // println!(
+        //     "Insert {}, {} into brawlhub.card",
+        //     card.name_full, card.oracle_id
+        // );
         sqlx::query_as!(
             Card,
             "INSERT INTO card(
@@ -223,6 +390,355 @@ async fn migrate_scryfall_alchemy_cards(pool: &Pool<Postgres>) {
         .await
         .expect("couldn't insert");
     }
+
+    println!("All new cards added to database")
+}
+
+async fn populate_scryfall_id_table(pool: &Pool<Postgres>) -> () {
+    #[derive(Deserialize)]
+    struct ScryfallId {
+        id: String,
+        oracle_id: Option<String>,
+    }
+
+    let data = fs::read_to_string("default-cards.json").expect("unable to read JSON");
+    let scryfall_ids: Vec<ScryfallId> = serde_json::from_str(&data).expect("unable to parse JSON");
+
+    let mut count = 0;
+
+    for id in scryfall_ids {
+        if let Some(oracle_id) = &id.oracle_id {
+            let exists: bool = sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM card WHERE oracle_id = $1)",
+                Uuid::parse_str(oracle_id).unwrap()
+            )
+            .fetch_one(pool)
+            .await
+            .expect("couldn't check if oracle_id exists")
+            .expect("unwrap bool");
+
+            if exists {
+                sqlx::query!(
+                    "INSERT INTO scryfall_id (scryfall_id, oracle_id) VALUES ($1, $2) ON CONFLICT (scryfall_id) DO NOTHING",
+                    Uuid::parse_str(&id.id).unwrap(),
+                    Uuid::parse_str(oracle_id).unwrap()
+                )
+                .execute(pool)
+                .await
+                .expect("couldn't insert id's into db");
+
+                count = count + 1;
+                // println!("{} - {} : {}", count, id.oracle_id.clone().unwrap(), id.id)
+            }
+        }
+    }
+    println!("Populated ScryfallID table");
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+struct MoxfieldDeck {
+    id: String,
+    name: String,
+    public_url: String,
+    public_id: String,
+    created_by_user: User,
+    created_at_utc: chrono::DateTime<Utc>,
+    last_updated_at_utc: chrono::DateTime<Utc>,
+    colors: Vec<String>,
+    color_identity: Vec<String>,
+    visibility: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+struct User {
+    user_name: String,
+}
+
+async fn migrate_moxfield_decklists(pool: &Pool<Postgres>, deck: &MoxfieldDeck) {
+    #[derive(Serialize, Deserialize, Debug, Clone)]
+    struct MoxfieldCardInfo {
+        quantity: i32,
+        card: MoxfieldCard,
+    }
+
+    #[derive(Serialize, Deserialize, Debug, Clone)]
+    struct MoxfieldCard {
+        id: String,
+        #[serde(rename = "uniqueCardId")]
+        unique_card_id: String,
+        scryfall_id: String,
+        name: String,
+    }
+
+    #[derive(Serialize, Deserialize, Debug, Clone)]
+    struct Boards {
+        mainboard: Board,
+        sideboard: Board,
+        maybeboard: Board,
+        commanders: Board,
+        companions: Board,
+    }
+
+    #[derive(Serialize, Deserialize, Debug, Clone)]
+    struct Board {
+        count: i32,
+        cards: std::collections::HashMap<String, MoxfieldCardInfo>,
+    }
+
+    #[derive(Serialize, Deserialize, Debug, Clone)]
+    #[serde(rename_all = "camelCase")]
+    struct Response {
+        id: String,
+        public_url: String,
+        public_id: String,
+        created_by_user: User,
+        main: MoxfieldCard,
+        boards: Boards,
+        created_at_utc: chrono::DateTime<Utc>,
+        last_updated_at_utc: chrono::DateTime<Utc>,
+    }
+
+    let request_url = format!("https://api2.moxfield.com/v3/decks/all/{}", deck.public_id);
+    // println!("{}", request_url);
+    let decklist = reqwest::Client::new()
+        .get(request_url)
+        .header("Content-Type", "application/json")
+        .send()
+        .await
+        .expect("couldn't send get request for moxfield deck")
+        .text()
+        .await
+        .expect("couldn't read reponse body");
+
+    let json: Result<Response, _> = serde_json::from_str(&decklist);
+    let json = match json {
+        Ok(json) => json,
+        Err(err) => {
+            eprintln!("Couldn't deserialize JSON: {:?}", err);
+            return; // Exit the function early with an error message
+        }
+    };
+
+    let mainboard = json.boards.mainboard.cards;
+
+    struct IdQuantity {
+        id: Uuid,
+        quantity: i32,
+    }
+
+    let oracle_ids = mainboard.into_iter().map(|card| async move {
+        let sfid = card.1.card.scryfall_id;
+        let quantity = card.1.quantity;
+
+        let result = sqlx::query!(
+            "SELECT oracle_id FROM scryfall_id WHERE scryfall_id = $1",
+            Uuid::from_str(&sfid).expect("couldn't parse uuid from str")
+        )
+        .fetch_one(pool)
+        .await;
+
+
+        if result.is_ok() {
+            Some(IdQuantity {
+                id: result.unwrap().oracle_id.expect("oracle_id missing"),
+                quantity,
+            })
+        } else {
+            //need access to the name of the card
+            let name = card.1.card.name;
+
+            let res = sqlx::query!("
+                SELECT oracle_id 
+                FROM card 
+                WHERE unaccent(name_full) = unaccent($1)
+                OR (unaccent(name_front) = unaccent($1) AND layout IN ('transform','modal_dfc', 'adventure'))",
+                name
+            ).fetch_one(pool).await;
+            // let id = match id {
+            //     Ok(val) => {
+            //         Ok(val)
+            //     }
+            //     Err(err) => {
+            //         eprintln!("Error fetching by name: {:?}", name);
+            //         Err(err)
+            //     }
+            // };
+
+            // let id = id.expect("couldn't fetch uuid from name").oracle_id;
+
+            if let Ok(id) = res {
+                Some(IdQuantity {
+                    id: id.oracle_id,
+                    quantity,
+                })
+            } else {
+                eprintln!("Error fetching by name: {:?}", name);
+                None
+            }
+        }
+
+    });
+
+    let commander_id = json.boards.commanders.cards.values().nth(0);
+
+    if commander_id.is_none() {
+        println!("no commander in commander board, skipping");
+        return;
+    }
+
+    let commander_id = commander_id
+        .expect("no commander in commander board")
+        .card
+        .scryfall_id
+        .clone();
+
+    let companion_id = json
+        .boards
+        .companions
+        .cards
+        .values()
+        .nth(0)
+        .map(|card| card.card.scryfall_id.clone());
+
+    let commander_id = sqlx::query!(
+        "SELECT oracle_id FROM scryfall_id WHERE scryfall_id = $1",
+        Uuid::from_str(&commander_id).expect("uuid from str")
+    )
+    .fetch_one(pool)
+    .await;
+
+    if commander_id.is_err() {
+        return;
+    }
+
+    let commander_id = commander_id
+        .expect("couln't fetch oracle_id of commander")
+        .oracle_id
+        .expect("no oracle_id for commander");
+
+    let companion_id = if companion_id.is_some() {
+        Some(
+            sqlx::query!(
+                "SELECT oracle_id FROM scryfall_id WHERE scryfall_id = $1",
+                Uuid::from_str(&companion_id.unwrap()).expect("uuid from str")
+            )
+            .fetch_one(pool)
+            .await
+            .expect("couln't fetch oracle_id of commander")
+            .oracle_id
+            .expect("no oracle_id for commander"),
+        )
+    } else {
+        None
+    };
+
+    let color_identity = sqlx::query!(
+        "SELECT color_identity FROM card WHERE oracle_id = $1",
+        commander_id
+    )
+    .fetch_one(pool)
+    .await
+    .expect("couldn't fetch color identity of commander");
+
+    let oracle_ids = join_all(oracle_ids).await;
+    let oracle_ids: Vec<IdQuantity> = oracle_ids.into_iter().filter_map(|card| card).collect();
+
+    #[derive(Serialize, Deserialize, Debug)]
+    struct Deck {
+        id: i32,
+        mox_deck_id: String,
+        url: String,
+        username: String,
+        date_created: i64,
+        date_updated: i64,
+        commander: Uuid,
+        companion: Option<Uuid>,
+        color_identity: Vec<String>,
+        source: String,
+    }
+
+    let insert = Deck {
+        id: 1,
+        mox_deck_id: json.id,
+        url: json.public_url,
+        username: json.created_by_user.user_name,
+        date_created: json.created_at_utc.timestamp_millis(),
+        date_updated: json.last_updated_at_utc.timestamp_millis(),
+        commander: commander_id,
+        companion: companion_id,
+        color_identity: color_identity.color_identity,
+        source: String::from("moxfield"),
+    };
+
+    sqlx::query_as!(
+        Deck,
+        "INSERT INTO deck 
+            (url, username, date_created, date_updated, commander, companion, color_identity, mox_deck_id, source)
+        VALUES
+            ($1, $2, $3, $4, $5, $6, $7, $8, 'moxfield')
+        ON CONFLICT (mox_deck_id) DO NOTHING
+        ",
+        insert.url, insert.username, insert.date_created, insert.date_updated, insert.commander, insert.companion, &insert.color_identity, insert.mox_deck_id
+    ).execute(pool).await.expect("insert mox deck into db");
+
+    let deck_id = sqlx::query!(
+        "SELECT id FROM deck WHERE mox_deck_id = $1",
+        insert.mox_deck_id
+    )
+    .fetch_one(pool)
+    .await
+    .expect("couldn't fetch deck_id")
+    .id;
+
+    for card in oracle_ids {
+        let is_companion = Some(card.id) == insert.companion;
+        let is_commander = card.id == insert.commander;
+
+        sqlx::query!(
+            "INSERT INTO decklist
+                (oracle_id, deck_id, is_companion, is_commander, quantity)
+            VALUES
+                ($1, $2, $3, $4, $5)
+            ON CONFLICT (oracle_id, deck_id) DO NOTHING
+            ",
+            card.id,
+            deck_id,
+            is_companion,
+            is_commander,
+            card.quantity
+        )
+        .execute(pool)
+        .await
+        .expect("insert decklist into db");
+    }
+    println!("Moxfield Deck {} Inserted", deck_id);
+}
+
+async fn get_moxfield_decks(page: i32) -> Vec<MoxfieldDeck> {
+    let request_url = format!("https://api2.moxfield.com/v2/decks/search-sfw?pageNumber={page}&pageSize=64&sortType=created&sortDirection=Descending&fmt=historicBrawl");
+
+    #[derive(Deserialize, Debug, Clone)]
+    struct Response {
+        data: Vec<MoxfieldDeck>,
+    }
+
+    let res = reqwest::Client::new()
+        .get(request_url)
+        .header("Content-Type", "application/json")
+        .send()
+        .await
+        .expect("couldn't send get request")
+        .text()
+        .await
+        .expect("couldn't read response body");
+
+    let json: Response = serde_json::from_str(&res).expect("deserialize moxfield res");
+    json.data
+        .into_iter()
+        .filter(|res| res.visibility != "deleted")
+        .collect()
 }
 
 async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck) {
@@ -368,34 +884,14 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
                 color_identity: res.color_identity,
             })
         } else {
-            eprintln!("Error for card {}", card.name);
+            eprintln!("Error for card {}, couldn't find oracle_id", card.name);
             None
         }
-    
-        // The result is wrapped in an Option here, filtering out None (skipping the entry)
-
-        // sqlx::query_as!(
-        //     OracleId,
-        //     "SELECT name, oracle_id, color_identity FROM (
-        //     SELECT oracle_id, name, color_identity, 1 AS priority FROM card WHERE unaccent(name) LIKE unaccent($1)
-        //     UNION SELECT oracle_id, name, color_identity, 2 AS priority FROM card WHERE unaccent(name) LIKE unaccent($2)
-        //     UNION SELECT oracle_id, name, color_identity, 3 AS priority FROM card WHERE unaccent(name) = unaccent($3)
-        //     UNION SELECT oracle_id, name, color_identity, 4 AS priority FROM card WHERE unaccent(name) = unaccent($4)
-        //     ) as result
-        //     ORDER BY priority",
-        //     alchemy_flip, // Search for alchemy flip cards with "A-name //%"
-        //     flip,         // Search for regular flip cards with "name //%"
-        //     card.a_name,  // Search for alchemy card with "A-name"
-        //     card.name     // Search for regular card with "name"
-        // )
-        // .fetch_optional(pool)
-        // .await
-        // .unwrap_or_else(|_| panic!("Error when querying db for {}", card.name))
-        // .unwrap_or_else(|| panic!("Couldn't find oracle_id of card {}", card.name))
     });
 
     let card_ids = join_all(card_ids).await;
-    let combined_card_data: Vec<CombinedCardData> = card_ids.into_iter().filter_map(|card| card).collect();
+    let combined_card_data: Vec<CombinedCardData> =
+        card_ids.into_iter().filter_map(|card| card).collect();
 
     #[derive(Debug)]
     struct CombinedCardData {
@@ -406,19 +902,6 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
         quantity: Option<i32>,
         color_identity: Vec<String>,
     }
-
-    // let combined_card_data: Vec<CombinedCardData> = aetherhub_decklist
-    //     .into_iter()
-    //     .zip(card_ids)
-    //     .map(|(decklist_card, card_id)| CombinedCardData {
-    //         oracle_id: card_id.oracle_id,
-    //         name: decklist_card.name,
-    //         is_commander: decklist_card.is_commander,
-    //         is_companion: decklist_card.is_companion,
-    //         quantity: decklist_card.quantity,
-    //         color_identity: card_id.color_identity,
-    //     })
-    //     .collect();
 
     struct DeckID {
         id: i32,
@@ -483,6 +966,7 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
         .await
         .expect("insert card failed");
     }
+    println!("Aetherhub Deck {} inserted", deck_id.id);
 }
 
 async fn get_aetherhub_decks(start: i32, length: i32) -> Vec<AetherHubDeck> {
@@ -632,17 +1116,6 @@ async fn get_aetherhub_decks(start: i32, length: i32) -> Vec<AetherHubDeck> {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-struct Deck {
-    id: i32,
-    ah_deck_id: i32,
-    url: String,
-    username: String,
-    date_created: i64,
-    date_updated: i64,
-    commander: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
 struct AetherHubDeck {
     id: i32,
     name: String,
@@ -691,7 +1164,7 @@ struct Card {
     lowest_rarity: String,
 }
 
-#[derive( Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug, Clone)]
 #[serde(tag = "layout", rename_all = "snake_case")]
 enum ScryfallCard {
     Normal(Normal),
@@ -1133,7 +1606,6 @@ fn strip_alchemy_prefix(name: &str) -> String {
     }
 }
 
-
 impl ScryfallCardProperties for ScryfallCard {
     fn name(&self) -> String {
         match self {
@@ -1379,7 +1851,9 @@ impl ScryfallCardProperties for ScryfallCard {
             ScryfallCard::Scheme(normal) => normal.lowest_rarity(),
             ScryfallCard::Vanguard(normal) => normal.lowest_rarity(),
             ScryfallCard::Token(normal) => normal.lowest_rarity(),
-            ScryfallCard::DoubleFacedToken(double_faced_token) => double_faced_token.lowest_rarity(),
+            ScryfallCard::DoubleFacedToken(double_faced_token) => {
+                double_faced_token.lowest_rarity()
+            }
             ScryfallCard::Emblem(normal) => normal.lowest_rarity(),
             ScryfallCard::Augment(normal) => normal.lowest_rarity(),
             ScryfallCard::Host(normal) => normal.lowest_rarity(),
@@ -1407,20 +1881,22 @@ impl ScryfallCardProperties for ScryfallCard {
             ScryfallCard::Scheme(normal) => normal.set_lowest_rarity(new_lowest_rarity),
             ScryfallCard::Vanguard(normal) => normal.set_lowest_rarity(new_lowest_rarity),
             ScryfallCard::Token(normal) => normal.set_lowest_rarity(new_lowest_rarity),
-            ScryfallCard::DoubleFacedToken(double_faced_token) => double_faced_token.set_lowest_rarity(new_lowest_rarity),
+            ScryfallCard::DoubleFacedToken(double_faced_token) => {
+                double_faced_token.set_lowest_rarity(new_lowest_rarity)
+            }
             ScryfallCard::Emblem(normal) => normal.set_lowest_rarity(new_lowest_rarity),
             ScryfallCard::Augment(normal) => normal.set_lowest_rarity(new_lowest_rarity),
             ScryfallCard::Host(normal) => normal.set_lowest_rarity(new_lowest_rarity),
             ScryfallCard::ArtSeries(art_series) => art_series.set_lowest_rarity(new_lowest_rarity),
-            ScryfallCard::ReversibleCard(reversible_card) => reversible_card.set_lowest_rarity(new_lowest_rarity),
+            ScryfallCard::ReversibleCard(reversible_card) => {
+                reversible_card.set_lowest_rarity(new_lowest_rarity)
+            }
             ScryfallCard::Case(normal) => normal.set_lowest_rarity(new_lowest_rarity),
         }
     }
-
 }
 
 impl ScryfallCardProperties for Normal {
-
     fn set_lowest_rarity(&mut self, new_lowest_rarity: String) {
         self.lowest_rarity = new_lowest_rarity;
     }
@@ -1470,7 +1946,6 @@ impl ScryfallCardProperties for Normal {
     }
 }
 impl ScryfallCardProperties for Split {
-
     fn set_lowest_rarity(&mut self, new_lowest_rarity: String) {
         self.lowest_rarity = new_lowest_rarity;
     }
@@ -1519,7 +1994,6 @@ impl ScryfallCardProperties for Split {
     }
 }
 impl ScryfallCardProperties for Flip {
-
     fn set_lowest_rarity(&mut self, new_lowest_rarity: String) {
         self.lowest_rarity = new_lowest_rarity;
     }
@@ -1535,8 +2009,6 @@ impl ScryfallCardProperties for Flip {
     fn oracle_id(&self) -> String {
         self.oracle_id.clone()
     }
-
-    
 
     fn layout(&self) -> String {
         "flip".to_string()
@@ -1570,7 +2042,6 @@ impl ScryfallCardProperties for Flip {
     }
 }
 impl ScryfallCardProperties for Transform {
-
     fn set_lowest_rarity(&mut self, new_lowest_rarity: String) {
         self.lowest_rarity = new_lowest_rarity;
     }
@@ -1586,8 +2057,6 @@ impl ScryfallCardProperties for Transform {
     fn oracle_id(&self) -> String {
         self.oracle_id.clone()
     }
-
-    
 
     fn layout(&self) -> String {
         "transform".to_string()
@@ -1621,7 +2090,6 @@ impl ScryfallCardProperties for Transform {
     }
 }
 impl ScryfallCardProperties for ModalDFC {
-
     fn set_lowest_rarity(&mut self, new_lowest_rarity: String) {
         self.lowest_rarity = new_lowest_rarity;
     }
@@ -1670,7 +2138,6 @@ impl ScryfallCardProperties for ModalDFC {
     }
 }
 impl ScryfallCardProperties for Meld {
-
     fn set_lowest_rarity(&mut self, new_lowest_rarity: String) {
         self.lowest_rarity = new_lowest_rarity;
     }
@@ -1716,10 +2183,8 @@ impl ScryfallCardProperties for Meld {
     fn lowest_rarity(&self) -> String {
         self.lowest_rarity.clone()
     }
-    
 }
 impl ScryfallCardProperties for Adventure {
-
     fn set_lowest_rarity(&mut self, new_lowest_rarity: String) {
         self.lowest_rarity = new_lowest_rarity;
     }
@@ -1765,10 +2230,8 @@ impl ScryfallCardProperties for Adventure {
     fn lowest_rarity(&self) -> String {
         self.lowest_rarity.clone()
     }
-    
 }
 impl ScryfallCardProperties for ArtSeries {
-
     fn set_lowest_rarity(&mut self, new_lowest_rarity: String) {
         self.lowest_rarity = new_lowest_rarity;
     }
@@ -1814,10 +2277,8 @@ impl ScryfallCardProperties for ArtSeries {
     fn lowest_rarity(&self) -> String {
         self.lowest_rarity.clone()
     }
-    
 }
 impl ScryfallCardProperties for DoubleFacedToken {
-
     fn set_lowest_rarity(&mut self, new_lowest_rarity: String) {
         self.lowest_rarity = new_lowest_rarity;
     }
@@ -1863,10 +2324,8 @@ impl ScryfallCardProperties for DoubleFacedToken {
     fn lowest_rarity(&self) -> String {
         self.lowest_rarity.clone()
     }
-    
 }
 impl ScryfallCardProperties for ReversibleCard {
-
     fn set_lowest_rarity(&mut self, new_lowest_rarity: String) {
         self.lowest_rarity = new_lowest_rarity;
     }
@@ -1912,14 +2371,12 @@ impl ScryfallCardProperties for ReversibleCard {
     fn lowest_rarity(&self) -> String {
         self.lowest_rarity.clone()
     }
-    
 }
 
 impl From<ScryfallCard> for Card {
     fn from(card: ScryfallCard) -> Self {
         match card {
-            ScryfallCard::Normal(c) => 
-            Card {
+            ScryfallCard::Normal(c) => Card {
                 oracle_id: c.oracle_id(),
                 slug: slug(&c.name()),
                 name_full: strip_alchemy_prefix(&c.name()),
@@ -2127,8 +2584,7 @@ impl From<ScryfallCard> for Card {
                 color_identity: c.color_identity.clone(),
                 is_legal: c.legalities.brawl == "legal",
                 is_legal_commander: is_legal_commander(&c.type_line)
-                    && c
-                        .all_parts
+                    && c.all_parts
                         .iter()
                         .find(|part| part.name == c.name())
                         .expect("Find Meld part associated to this card")
@@ -2148,8 +2604,7 @@ impl From<ScryfallCard> for Card {
                 image_border_crop_back: None,
                 lowest_rarity: c.lowest_rarity.clone(),
             },
-            ScryfallCard::Leveler(c) => 
-            Card {
+            ScryfallCard::Leveler(c) => Card {
                 oracle_id: c.oracle_id(),
                 slug: slug(&c.name()),
                 name_full: strip_alchemy_prefix(&c.name()),
@@ -2186,8 +2641,7 @@ impl From<ScryfallCard> for Card {
                 image_border_crop_back: None,
                 lowest_rarity: c.lowest_rarity.clone(),
             },
-            ScryfallCard::Class(c) => 
-            Card {
+            ScryfallCard::Class(c) => Card {
                 oracle_id: c.oracle_id(),
                 slug: slug(&c.name()),
                 name_full: strip_alchemy_prefix(&c.name()),
@@ -2224,8 +2678,7 @@ impl From<ScryfallCard> for Card {
                 image_border_crop_back: None,
                 lowest_rarity: c.lowest_rarity.clone(),
             },
-            ScryfallCard::Saga(c) => 
-            Card {
+            ScryfallCard::Saga(c) => Card {
                 oracle_id: c.oracle_id(),
                 slug: slug(&c.name()),
                 name_full: strip_alchemy_prefix(&c.name()),
@@ -2299,8 +2752,7 @@ impl From<ScryfallCard> for Card {
                 image_border_crop_back: None,
                 lowest_rarity: c.lowest_rarity.clone(),
             },
-            ScryfallCard::Mutate(c) => 
-            Card {
+            ScryfallCard::Mutate(c) => Card {
                 oracle_id: c.oracle_id(),
                 slug: slug(&c.name()),
                 name_full: strip_alchemy_prefix(&c.name()),
@@ -2337,8 +2789,7 @@ impl From<ScryfallCard> for Card {
                 image_border_crop_back: None,
                 lowest_rarity: c.lowest_rarity.clone(),
             },
-            ScryfallCard::Prototype(c) => 
-            Card {
+            ScryfallCard::Prototype(c) => Card {
                 oracle_id: c.oracle_id(),
                 slug: slug(&c.name()),
                 name_full: strip_alchemy_prefix(&c.name()),
@@ -2375,8 +2826,7 @@ impl From<ScryfallCard> for Card {
                 image_border_crop_back: None,
                 lowest_rarity: c.lowest_rarity.clone(),
             },
-            ScryfallCard::Planar(c) => 
-            Card {
+            ScryfallCard::Planar(c) => Card {
                 oracle_id: c.oracle_id(),
                 slug: slug(&c.name()),
                 name_full: strip_alchemy_prefix(&c.name()),
@@ -2413,8 +2863,7 @@ impl From<ScryfallCard> for Card {
                 image_border_crop_back: None,
                 lowest_rarity: c.lowest_rarity.clone(),
             },
-            ScryfallCard::Scheme(c) => 
-            Card {
+            ScryfallCard::Scheme(c) => Card {
                 oracle_id: c.oracle_id(),
                 slug: slug(&c.name()),
                 name_full: strip_alchemy_prefix(&c.name()),
@@ -2451,8 +2900,7 @@ impl From<ScryfallCard> for Card {
                 image_border_crop_back: None,
                 lowest_rarity: c.lowest_rarity.clone(),
             },
-            ScryfallCard::Vanguard(c) => 
-            Card {
+            ScryfallCard::Vanguard(c) => Card {
                 oracle_id: c.oracle_id(),
                 slug: slug(&c.name()),
                 name_full: strip_alchemy_prefix(&c.name()),
@@ -2489,44 +2937,43 @@ impl From<ScryfallCard> for Card {
                 image_border_crop_back: None,
                 lowest_rarity: c.lowest_rarity.clone(),
             },
-            ScryfallCard::Token(c) =>
-                Card {
-                    oracle_id: c.oracle_id(),
-                    slug: slug(&c.name()),
-                    name_full: strip_alchemy_prefix(&c.name()),
-                    name_front: strip_alchemy_prefix(&c.name()),
-                    name_back: None,
-                    lang: c.lang.clone(),
-                    scryfall_uri: c.scryfall_uri.clone(),
-                    layout: "token".to_string(),
-                    mana_cost_combined: None,
-                    mana_cost_front: c.mana_cost.clone(),
-                    mana_cost_back: None,
-                    cmc: c.cmc,
-                    type_line_full: c.type_line.clone(),
-                    type_line_front: c.type_line.clone(),
-                    type_line_back: None,
-                    oracle_text: c.oracle_text.clone(),
-                    oracle_text_back: None,
-                    colors: c.colors.clone(),
-                    colors_back: None,
-                    color_identity: c.color_identity.clone(),
-                    is_legal: c.legalities.brawl == "legal",
-                    is_legal_commander: is_legal_commander(&c.type_line),
-                    is_rebalanced: c.is_rebalanced(),
-                    rarity: c.rarity.clone(),
-                    image_small: c.image_uris.small.clone(),
-                    image_normal: c.image_uris.normal.clone(),
-                    image_large: c.image_uris.large.clone(),
-                    image_art_crop: c.image_uris.art_crop.clone(),
-                    image_border_crop: c.image_uris.border_crop.clone(),
-                    image_small_back: None,
-                    image_normal_back: None,
-                    image_large_back: None,
-                    image_art_crop_back: None,
-                    image_border_crop_back: None,
-                    lowest_rarity: c.lowest_rarity.clone(),
-                },
+            ScryfallCard::Token(c) => Card {
+                oracle_id: c.oracle_id(),
+                slug: slug(&c.name()),
+                name_full: strip_alchemy_prefix(&c.name()),
+                name_front: strip_alchemy_prefix(&c.name()),
+                name_back: None,
+                lang: c.lang.clone(),
+                scryfall_uri: c.scryfall_uri.clone(),
+                layout: "token".to_string(),
+                mana_cost_combined: None,
+                mana_cost_front: c.mana_cost.clone(),
+                mana_cost_back: None,
+                cmc: c.cmc,
+                type_line_full: c.type_line.clone(),
+                type_line_front: c.type_line.clone(),
+                type_line_back: None,
+                oracle_text: c.oracle_text.clone(),
+                oracle_text_back: None,
+                colors: c.colors.clone(),
+                colors_back: None,
+                color_identity: c.color_identity.clone(),
+                is_legal: c.legalities.brawl == "legal",
+                is_legal_commander: is_legal_commander(&c.type_line),
+                is_rebalanced: c.is_rebalanced(),
+                rarity: c.rarity.clone(),
+                image_small: c.image_uris.small.clone(),
+                image_normal: c.image_uris.normal.clone(),
+                image_large: c.image_uris.large.clone(),
+                image_art_crop: c.image_uris.art_crop.clone(),
+                image_border_crop: c.image_uris.border_crop.clone(),
+                image_small_back: None,
+                image_normal_back: None,
+                image_large_back: None,
+                image_art_crop_back: None,
+                image_border_crop_back: None,
+                lowest_rarity: c.lowest_rarity.clone(),
+            },
             ScryfallCard::DoubleFacedToken(c) => Card {
                 oracle_id: c.oracle_id(),
                 slug: slug(&c.name()),
@@ -2564,8 +3011,7 @@ impl From<ScryfallCard> for Card {
                 image_border_crop_back: Some(c.card_faces[1].image_uris.art_crop.clone()),
                 lowest_rarity: c.lowest_rarity.clone(),
             },
-            ScryfallCard::Emblem(c) => 
-            Card {
+            ScryfallCard::Emblem(c) => Card {
                 oracle_id: c.oracle_id(),
                 slug: slug(&c.name()),
                 name_full: strip_alchemy_prefix(&c.name()),
@@ -2602,8 +3048,7 @@ impl From<ScryfallCard> for Card {
                 image_border_crop_back: None,
                 lowest_rarity: c.lowest_rarity.clone(),
             },
-            ScryfallCard::Augment(c) => 
-            Card {
+            ScryfallCard::Augment(c) => Card {
                 oracle_id: c.oracle_id(),
                 slug: slug(&c.name()),
                 name_full: strip_alchemy_prefix(&c.name()),
@@ -2640,8 +3085,7 @@ impl From<ScryfallCard> for Card {
                 image_border_crop_back: None,
                 lowest_rarity: c.lowest_rarity.clone(),
             },
-            ScryfallCard::Host(c) => 
-            Card {
+            ScryfallCard::Host(c) => Card {
                 oracle_id: c.oracle_id(),
                 slug: slug(&c.name()),
                 name_full: strip_alchemy_prefix(&c.name()),
