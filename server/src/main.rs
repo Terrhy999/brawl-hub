@@ -71,7 +71,7 @@ async fn deck_by_id(
 ) -> Json<Deck> {
     #[derive(Debug)]
     struct DeckInfo {
-        deck_id: Option<i32>,
+        ah_deck_id: Option<i32>,
         url: String,
         username: String,
         date_created: i64,
@@ -126,9 +126,9 @@ async fn deck_by_id(
     let deck_info: DeckInfo = sqlx::query_as!(
         DeckInfo,
         "SELECT 
-            deck_id, url, username, date_created, date_updated, commander, companion, color_identity 
+            ah_deck_id, url, username, date_created, date_updated, commander, companion, color_identity 
             FROM deck 
-            WHERE deck_id = $1;", deck_id).fetch_one(&pool).await.expect("couldn't fetch deck");
+            WHERE ah_deck_id = $1;", deck_id).fetch_one(&pool).await.expect("couldn't fetch deck");
 
     println!(
         "commander uuid: {}\ncompanion uuid: {:#?}",
