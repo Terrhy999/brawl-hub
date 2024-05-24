@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 
-sudo -i -u postgres -H -- psql -d brawlhub -h localhost << EOF
+cd "$(dirname "$0")"
+set -o allexport
+source .env
+set +o allexport
+
+sudo -i PGPASSWORD=$PGPASSWORD psql -U $PGUSER -h $PGHOST -p $PGPORT -d $PGDATABASE --set=sslmode=require << EOF
 CREATE TABLE IF NOT EXISTS top_cards (
     oracle_id uuid PRIMARY KEY,
     name_full text NOT NULL,
@@ -14,24 +19,19 @@ TRUNCATE TABLE top_cards;
 
 INSERT INTO top_cards (oracle_id, name_full, color_identity, total_decks_could_play, total_decks_with_card, rank)
 WITH CardCounts AS (
-    SELECT
-        card.*,
-        COUNT(DISTINCT deck.id) AS total_decks_could_play,
-        COUNT(DISTINCT decklist.deck_id) AS total_decks_with_card
-    FROM card
-    JOIN deck ON deck.color_identity @> card.color_identity
-    LEFT JOIN decklist ON card.oracle_id = decklist.oracle_id
-    GROUP BY card.oracle_id
+  SELECT card.*, tdpc.total_decks AS total_decks_with_card, tdwci.total_decks AS total_decks_could_play FROM card
+  JOIN total_decks_per_card tdpc ON card.oracle_id = tdpc.oracle_id
+  JOIN total_decks_with_color_identity tdwci ON card.color_identity = tdwci.color_identity
 )
 SELECT
-    cc.oracle_id,
+cc.oracle_id,
     cc.name_full,
     cc.color_identity,
     cc.total_decks_could_play,
     cc.total_decks_with_card,
     CASE
         WHEN cc.total_decks_could_play = 0 THEN 0 -- Avoid division by zero
-        ELSE (cc.total_decks_with_card * 100.0 / cc.total_decks_could_play)
+        ELSE (cc.total_decks_with_card * 100.0 / cc.total_decks_could_play) -- Calculate rank using total decks with color identity
     END AS rank
 FROM CardCounts cc
 ORDER BY rank DESC
