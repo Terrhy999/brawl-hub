@@ -161,63 +161,80 @@ async fn deck_by_id(
     };
 
     let deck_list: Vec<CardCount> = sqlx::query_as!(
-        DecklistCard,
-        "SELECT card.*, decklist.is_companion, decklist.is_commander, decklist.quantity
+        CardCount,
+        r#"SELECT card.*, decklist.quantity::bigint AS "count?"
             FROM decklist
             JOIN card
             ON card.oracle_id = decklist.oracle_id
             JOIN deck
             ON decklist.deck_id = deck.id
-            WHERE deck.deck_id = $1;",
+            WHERE deck.ah_deck_id = $1;"#,
         deck_id
     )
     .fetch_all(&pool)
     .await
-    .expect("couldn't fetch cards in deck")
-    .into_iter()
-    .map(|x| CardCount {
-        oracle_id: x.oracle_id,
-        name_full: x.name_full,
-        name_front: x.name_front,
-        name_back: x.name_back,
-        slug: x.slug,
-        scryfall_uri: x.scryfall_uri,
-        layout: x.layout,
-        rarity: x.rarity,
-        lowest_rarity: x.lowest_rarity,
-        lang: x.lang,
-        mana_cost_combined: x.mana_cost_combined,
-        mana_cost_front: x.mana_cost_front,
-        mana_cost_back: x.mana_cost_back,
-        cmc: x.cmc,
-        type_line_full: x.type_line_full,
-        type_line_front: x.type_line_front,
-        type_line_back: x.type_line_back,
-        oracle_text: x.oracle_text,
-        oracle_text_back: x.oracle_text_back,
-        colors: x.colors,
-        colors_back: x.colors_back,
-        color_identity: x.color_identity,
-        is_legal: x.is_legal,
-        is_legal_commander: x.is_legal_commander,
-        is_rebalanced: x.is_rebalanced,
-        image_small: x.image_small,
-        image_normal: x.image_normal,
-        image_large: x.image_large,
-        image_art_crop: x.image_art_crop,
-        image_border_crop: x.image_border_crop,
-        image_small_back: x.image_small_back,
-        image_normal_back: x.image_normal_back,
-        image_large_back: x.image_large_back,
-        image_art_crop_back: x.image_art_crop_back,
-        image_border_crop_back: x.image_border_crop_back,
-        count: Some(x.quantity),
-    })
-    .collect();
+    .expect("couldn't fetch cards in deck");
+
+    let mut top_cards = Decklist {
+        creatures: vec![],
+        instants: vec![],
+        sorceries: vec![],
+        artifacts: vec![],
+        enchantments: vec![],
+        planeswalkers: vec![],
+        lands: vec![],
+    };
+
+    for card in deck_list.into_iter() {
+        match &card {
+            t if t.type_line_front.to_ascii_lowercase().contains("creature")
+                && top_cards.creatures.len() < 50 =>
+            {
+                top_cards.creatures.push(card)
+            }
+            t if t.type_line_front.to_ascii_lowercase().contains("instant")
+                && top_cards.instants.len() < 50 =>
+            {
+                top_cards.instants.push(card)
+            }
+            t if t.type_line_front.to_ascii_lowercase().contains("sorcery")
+                && top_cards.sorceries.len() < 50 =>
+            {
+                top_cards.sorceries.push(card)
+            }
+            t if t
+                .type_line_front
+                .to_ascii_lowercase()
+                .contains("planeswalker")
+                && top_cards.planeswalkers.len() < 50 =>
+            {
+                top_cards.planeswalkers.push(card)
+            }
+            t if t
+                .type_line_front
+                .to_ascii_lowercase()
+                .contains("enchantment")
+                && top_cards.enchantments.len() < 50 =>
+            {
+                top_cards.enchantments.push(card)
+            }
+            t if t.type_line_front.to_ascii_lowercase().contains("land")
+                && top_cards.lands.len() < 50 =>
+            {
+                top_cards.lands.push(card)
+            }
+            t if t.type_line_front.to_ascii_lowercase().contains("artifact")
+                && top_cards.artifacts.len() < 50 =>
+            {
+                top_cards.artifacts.push(card)
+            }
+            _ => (),
+        };
+    }
 
     let deck = Deck {
         //deck_id should really be NOT NULL in the database
-        deck_id: deck_info.deck_id.unwrap(),
+        deck_id: deck_info.ah_deck_id.unwrap(),
         url: deck_info.url,
         username: deck_info.username,
         date_created: deck_info.date_created,
@@ -225,7 +242,7 @@ async fn deck_by_id(
         commander: commander,
         companion: companion,
         color_identity: deck_info.color_identity,
-        decklist: deck_list,
+        decklist: top_cards,
     };
 
     Json(deck)
