@@ -5,6 +5,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
+use serde::Deserialize;
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
 use std::{env, net::SocketAddr};
 use tower_http::cors::CorsLayer;
@@ -596,9 +597,9 @@ async fn top_cards(State(AppState { pool }): State<AppState>) -> Json<Vec<TopCar
 async fn commander_top_cards(
     Path(oracle_id): Path<String>,
     State(AppState { pool }): State<AppState>,
-) -> Json<TopCardsForCommander2> {
+) -> Json<TopCardsForCommander> {
     let top_cards_for_commander = sqlx::query_as!(
-        TopCard2,
+        CommanderTopCard,
         "SELECT card.*, quantity, total_commander_decks, ci_quantity, total_commander_decks_of_ci FROM card
         JOIN (
             SELECT oracle_id, COUNT(oracle_id) as quantity FROM decklist
@@ -633,9 +634,9 @@ async fn commander_top_cards(
 
     let top_cards_for_commander = top_cards_for_commander
         .iter()
-        .map(TopCardWithSynergy::add_synergy);
+        .map(CommanderTopCardWithSynergy::add_synergy);
 
-    let mut top_cards = TopCardsForCommander2 {
+    let mut top_cards = TopCardsForCommander {
         creatures: vec![],
         instants: vec![],
         sorceries: vec![],
@@ -646,7 +647,7 @@ async fn commander_top_cards(
         lands: vec![],
     };
 
-    fn is_mana_artifact(card: &TopCardWithSynergy) -> bool {
+    fn is_mana_artifact(card: &CommanderTopCardWithSynergy) -> bool {
         card.type_line_full
             .to_ascii_lowercase()
             .contains("artifact")
@@ -862,10 +863,10 @@ struct Deck {
     commander: Card,
     companion: Option<Card>,
     color_identity: Vec<String>,
-    decklist: Vec<CardCount>,
+    decklist: Decklist,
 }
 
-#[derive(serde::Serialize, Debug)]
+#[derive(serde::Serialize, Debug, Deserialize)]
 struct Card {
     oracle_id: String,
     name_full: String,
@@ -904,7 +905,7 @@ struct Card {
     image_border_crop_back: Option<String>,
 }
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, Debug)]
 struct CardCount {
     oracle_id: String,
     name_full: String,
@@ -1029,47 +1030,6 @@ struct CardSlug {
 }
 
 #[derive(Debug, serde::Serialize)]
-struct CommanderTopCard {
-    oracle_id: String,
-    name_full: String,
-    name_front: String,
-    name_back: Option<String>,
-    slug: String,
-    scryfall_uri: String,
-    layout: String,
-    rarity: String,
-    lowest_rarity: String,
-    lang: String,
-    mana_cost_combined: Option<String>,
-    mana_cost_front: Option<String>,
-    mana_cost_back: Option<String>,
-    cmc: f32,
-    type_line_full: String,
-    type_line_front: String,
-    type_line_back: Option<String>,
-    oracle_text: Option<String>,
-    oracle_text_back: Option<String>,
-    colors: Option<Vec<String>>,
-    colors_back: Option<Vec<String>>,
-    color_identity: Vec<String>,
-    is_legal: bool,
-    is_legal_commander: bool,
-    is_rebalanced: bool,
-    image_small: String,
-    image_normal: String,
-    image_large: String,
-    image_art_crop: String,
-    image_border_crop: String,
-    image_small_back: Option<String>,
-    image_normal_back: Option<String>,
-    image_large_back: Option<String>,
-    image_art_crop_back: Option<String>,
-    image_border_crop_back: Option<String>,
-    num_decks_with_card: Option<i64>,
-    num_decks_total: Option<i64>,
-}
-
-#[derive(Debug, serde::Serialize)]
 struct TopCards {
     oracle_id: String,
     name_full: String,
@@ -1112,7 +1072,7 @@ struct TopCards {
 }
 
 #[derive(Debug, serde::Serialize)]
-struct TopCard2 {
+struct CommanderTopCard {
     oracle_id: String,
     name_full: String,
     name_front: String,
@@ -1155,7 +1115,7 @@ struct TopCard2 {
 }
 
 #[derive(Debug, serde::Serialize, Clone)]
-struct TopCardWithSynergy {
+struct CommanderTopCardWithSynergy {
     oracle_id: String,
     name_full: String,
     name_front: String,
@@ -1200,14 +1160,14 @@ struct TopCardWithSynergy {
     usage_in_color: f64,
 }
 
-impl TopCardWithSynergy {
-    fn add_synergy(other: &TopCard2) -> Self {
+impl CommanderTopCardWithSynergy {
+    fn add_synergy(other: &CommanderTopCard) -> Self {
         let usage_in_commander =
             (other.quantity.unwrap() as f64 / other.total_commander_decks.unwrap() as f64) * 100.00;
         let usage_in_color = (other.ci_quantity.unwrap() as f64
             / other.total_commander_decks_of_ci.unwrap() as f64)
             * 100.00;
-        TopCardWithSynergy {
+        CommanderTopCardWithSynergy {
             oracle_id: other.oracle_id.clone(),
             lang: other.lang.clone(),
             scryfall_uri: other.scryfall_uri.clone(),
@@ -1255,13 +1215,24 @@ impl TopCardWithSynergy {
 }
 
 #[derive(Debug, serde::Serialize)]
-struct TopCardsForCommander2 {
-    creatures: Vec<TopCardWithSynergy>,
-    instants: Vec<TopCardWithSynergy>,
-    sorceries: Vec<TopCardWithSynergy>,
-    utility_artifacts: Vec<TopCardWithSynergy>,
-    enchantments: Vec<TopCardWithSynergy>,
-    planeswalkers: Vec<TopCardWithSynergy>,
-    mana_artifacts: Vec<TopCardWithSynergy>,
-    lands: Vec<TopCardWithSynergy>,
+struct TopCardsForCommander {
+    creatures: Vec<CommanderTopCardWithSynergy>,
+    instants: Vec<CommanderTopCardWithSynergy>,
+    sorceries: Vec<CommanderTopCardWithSynergy>,
+    utility_artifacts: Vec<CommanderTopCardWithSynergy>,
+    enchantments: Vec<CommanderTopCardWithSynergy>,
+    planeswalkers: Vec<CommanderTopCardWithSynergy>,
+    mana_artifacts: Vec<CommanderTopCardWithSynergy>,
+    lands: Vec<CommanderTopCardWithSynergy>,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct Decklist {
+    creatures: Vec<CardCount>,
+    instants: Vec<CardCount>,
+    sorceries: Vec<CardCount>,
+    artifacts: Vec<CardCount>,
+    enchantments: Vec<CardCount>,
+    planeswalkers: Vec<CardCount>,
+    lands: Vec<CardCount>,
 }
