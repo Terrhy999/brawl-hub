@@ -433,9 +433,9 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
 
     sqlx::query_as!(
         AetherHubDeck,
-        "INSERT INTO deck (id, deck_id, url, username, date_created, date_updated, commander, color_identity, companion)
+        "INSERT INTO deck (id, ah_deck_id, url, username, date_created, date_updated, commander, color_identity, companion)
         VALUES (DEFAULT, $1, $2, $3, $4, $5, $6, $7, $8)
-        ON CONFLICT (deck_id) DO NOTHING",
+        ON CONFLICT (ah_deck_id) DO NOTHING",
         // Uuid::parse_str(&deck.id).expect("uuid parsed wrong"),
         deck.id,
         deck.url,
@@ -452,12 +452,12 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
     .expect("insert deck into db failed");
 
     let deck_id: DeckID =
-        sqlx::query_as!(DeckID, "SELECT id FROM deck WHERE deck_id = $1", deck.id)
+        sqlx::query_as!(DeckID, "SELECT id FROM deck WHERE ah_deck_id = $1", deck.id)
             .fetch_one(pool)
             .await
             .unwrap_or_else(|_| {
                 panic!(
-                    "couldn't find primary key of deck with deck_id = {}",
+                    "couldn't find primary key of deck with ah_deck_id = {}",
                     deck.id
                 )
             });
