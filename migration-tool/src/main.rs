@@ -5,6 +5,7 @@ use slug::slugify;
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
 // use sqlx::types::Uuid;
 use chrono::prelude::*;
+use dotenv::dotenv;
 use futures::future::join_all;
 use std::{collections::HashMap, fmt::Debug, fs};
 use uuid::Uuid;
@@ -13,9 +14,11 @@ const DATABASE_URL: &str = "postgres://postgres:postgres@localhost/brawlhub";
 
 #[tokio::main]
 async fn main() {
+    dotenv().ok();
+    let database_url = std::env::var("DATABASE_URL").expect("set DATABASE_URL env variable");
     let pool = PgPoolOptions::new()
         .max_connections(5)
-        .connect(DATABASE_URL)
+        .connect(&database_url)
         .await
         .expect("couldn't connect to db");
 

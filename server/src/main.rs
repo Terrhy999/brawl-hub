@@ -9,6 +9,7 @@ use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
 use std::{env, net::SocketAddr};
 use tower_http::cors::CorsLayer;
 use uuid::Uuid;
+use dotenv::dotenv;
 
 #[derive(Clone)]
 struct AppState {
@@ -17,10 +18,8 @@ struct AppState {
 
 #[tokio::main]
 async fn main() {
-    // let database_url = std::env::var("DATABASE_URL").expect("set DATABASE_URL env variable");
-    // println!("{}", database_url);
-    // let database_url = std::env::var("DATABASE_URL").expect("set DATABASE_URL env variable");
-    let database_url = "postgres://postgres:postgres@localhost/brawlhub";
+    dotenv().ok();
+    let database_url = std::env::var("DATABASE_URL").expect("set DATABASE_URL env variable");
     let state = AppState {
         pool: PgPoolOptions::new()
             .max_connections(5)
