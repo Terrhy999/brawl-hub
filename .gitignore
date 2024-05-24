@@ -1,6 +1,6 @@
 /**/target
-migration-tool/oracle-cards.json
-migration-tool/default-cards.json
+oracle-cards.json
+default-cards.json
 */test.json
 .env
 pgdata
@@ -9,3 +9,4 @@ server/query
 brawlhub.tar.gz
 Dockerfile
 NOTES.md
+update_database.log
