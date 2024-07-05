@@ -713,7 +713,7 @@ async fn migrate_moxfield_decklists(pool: &Pool<Postgres>, deck: &MoxfieldDeck) 
         .await
         .expect("insert decklist into db");
     }
-    println!("Moxfield Deck {} Inserted", deck_id);
+    // println!("Moxfield Deck {} Inserted", deck_id);
 }
 
 async fn get_moxfield_decks(page: i32) -> Vec<MoxfieldDeck> {
@@ -907,6 +907,11 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
         id: i32,
     }
 
+    if combined_card_data.iter().find(|card| card.is_commander).is_none() {
+        eprintln!("No commander found in the decklist, skipping.");
+        return;
+    }
+
     let commander_info = combined_card_data
         .iter()
         .find(|card| card.is_commander)
@@ -966,7 +971,7 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
         .await
         .expect("insert card failed");
     }
-    println!("Aetherhub Deck {} inserted", deck_id.id);
+    // println!("Aetherhub Deck {} inserted", deck_id.id);
 }
 
 async fn get_aetherhub_decks(start: i32, length: i32) -> Vec<AetherHubDeck> {

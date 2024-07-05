@@ -1,16 +1,23 @@
 #!/bin/bash
 
 # Define log file
-LOG_FILE="./update_database.log"
+LOG_FILE="/root/brawl-hub/migration-tool/scripts/update_database.log"
 
 # Make sure to add Vercel Project ID and Vercel Token to your bashrc and crontab as environment variables
 # Crontab entry to run every Monday at 2am:
 # 0 2 * * 1 /root/brawl-hub/migration-tool/scripts/update_database.sh >> /root/brawl-hub/migration-tool/scripts/update_database.log 2>&1
 
+echo "Script started at $(date)" >> $LOG_FILE
+
+# Source the environment variables
+set -o allexport
+source /root/brawl-hub/migration-tool/scripts/.env
+set +o allexport
+
 # Function to trigger Vercel redeploy
 trigger_vercel_redeploy() {
   local vercel_project_id=$VERCEL_PROJECT_ID
-  local vercel_token="$VERCEL_TOKEN"
+  local vercel_token=$VERCEL_TOKEN
 
   echo "Triggering Vercel redeploy..." >> $LOG_FILE
   
@@ -33,16 +40,23 @@ trigger_vercel_redeploy() {
 }
 
 # Run the Rust program to update the database
+echo "Running Rust program..." >> $LOG_FILE
 /root/brawl-hub/migration-tool/target/release/brawl_hub_migration_tool >> $LOG_FILE 2>&1
 RUST_EXIT_CODE=$?
 
 # Check if the Rust program was successful
 if [ $RUST_EXIT_CODE -eq 0 ]; then
   # Run the top_cards.sh script
-  ./top_cards.sh >> $LOG_FILE 2>&1
+
+  echo "Rust program completed successfully." >> $LOG_FILE
+  
+  echo "Running top_cards.sh script..." >> $LOG_FILE
+  
+  /root/brawl-hub/migration-tool/scripts/top_cards.sh >> $LOG_FILE 2>&1
   SHELL_EXIT_CODE=$?
 
   if [ $SHELL_EXIT_CODE -eq 0 ]; then
+    echo "top_cards.sh script completed successfully." >> $LOG_FILE
     trigger_vercel_redeploy
   else
     echo "top_cards.sh script failed with exit code $SHELL_EXIT_CODE" >> $LOG_FILE
@@ -51,3 +65,5 @@ if [ $RUST_EXIT_CODE -eq 0 ]; then
 else
   echo "Rust program failed with exit code $RUST_EXIT_CODE" >> $LOG_FILE
 fi
+
+echo "Script ended at $(date)" >> $LOG_FILE
