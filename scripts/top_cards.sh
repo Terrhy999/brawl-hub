@@ -2,7 +2,7 @@
 
 cd "$(dirname "$0")"
 set -o allexport
-source .env
+source /home/terrhy999/brawl-hub/.env
 set +o allexport
 
 sudo -i PGPASSWORD=$PGPASSWORD psql -U $PGUSER -h $PGHOST -p $PGPORT -d $PGDATABASE --set=sslmode=require << EOF

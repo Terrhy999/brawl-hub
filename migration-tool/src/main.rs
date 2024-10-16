@@ -36,8 +36,8 @@ async fn main() {
         }
     }
     for decks in 0..10 {
-        println!("Decks {} - {} of Aetherhub", decks*50, (decks+1)*50);
-        for deck in get_aetherhub_decks(decks*50, 50).await {
+        println!("Decks {} - {} of Aetherhub", decks * 50, (decks + 1) * 50);
+        for deck in get_aetherhub_decks(decks * 50, 50).await {
             migrate_aetherhub_decklists(&pool, &deck).await;
         }
     }
@@ -62,15 +62,33 @@ async fn update_default_cards() -> () {
     }
 
     let url = "https://api.scryfall.com/bulk-data/default-cards";
+    println!("Sending request to {}", url);
     let res = reqwest::Client::new()
         .get(url)
         .header("Content-Type", "application/json")
+        .header("User-Agent", "Brawlhub/1.0")
+        .header("Accept", "application/json")
         .send()
-        .await
-        .expect("send GET request to download default-cards.json")
-        .text()
-        .await
-        .expect("serialize default-cards API response as text");
+        .await;
+
+    let res = match res {
+        Ok(response) => match response.text().await {
+            Ok(text) => text,
+            Err(err) => {
+                eprintln!("Failed to read response text: {:?}", err);
+                return;
+            }
+        },
+        Err(err) => {
+            eprintln!("Failed to send GET request {:?}", err);
+            return;
+        }
+    };
+
+    // .expect("send GET request to download default-cards.json")
+    // .text()
+    // .await
+    // .expect("serialize default-cards API response as text");
 
     let json: Result<Response, _> = serde_json::from_str(&res);
     let json = match json {
@@ -95,7 +113,8 @@ async fn update_default_cards() -> () {
         Ok(_) => println!("Old default-cards.json removed"),
         Err(_) => println!("No previous default-cards.json found"),
     }
-    std::fs::rename("new-default-cards.json", "default-cards.json").expect("rename new-default-cards.json to default-cards.json");
+    std::fs::rename("new-default-cards.json", "default-cards.json")
+        .expect("rename new-default-cards.json to default-cards.json");
 
     println!("Updated default-cards.json");
 }
@@ -907,7 +926,11 @@ async fn migrate_aetherhub_decklists(pool: &Pool<Postgres>, deck: &AetherHubDeck
         id: i32,
     }
 
-    if combined_card_data.iter().find(|card| card.is_commander).is_none() {
+    if combined_card_data
+        .iter()
+        .find(|card| card.is_commander)
+        .is_none()
+    {
         eprintln!("No commander found in the decklist, skipping.");
         return;
     }
