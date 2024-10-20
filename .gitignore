@@ -7,6 +7,5 @@ pgdata
 server/query
 */.sqlx
 brawlhub.tar.gz
-Dockerfile
 NOTES.md
 update_database.log

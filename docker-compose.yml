@@ -1,0 +1,33 @@
+version: "3.8"
+
+services:
+  # Next.js service
+  frontend:
+    container_name: "frontend"
+    build:
+      context: ./frontend # Path to the Next.js project
+      dockerfile: Dockerfile # You can skip this line if the Dockerfile is named 'Dockerfile'
+    ports:
+      - "3000:3000"
+    depends_on:
+      server:
+        condition: service_healthy
+    # command: sh -c "until curl -s http://server:3030/health; do echo waiting for rust server; sleep 5; done && npm run build && npm start"
+
+  # Rust API service
+  server:
+    container_name: "server"
+    build:
+      context: ./server # Path to the Rust project
+      dockerfile: Dockerfile
+      args:
+        DATABASE_URL: ${DATABASE_URL}
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+    ports:
+      - "3030:3030"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://server:3030/health"] # Adjust the health check endpoint
+      interval: 10s
+      timeout: 5s
+      retries: 5
