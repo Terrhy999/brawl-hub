@@ -53,6 +53,7 @@ async fn main() {
         )
         .route("/search/:card_", get(get_card))
         .route("/deck/:deck_id", get(deck_by_id))
+        .route("/health", get(health))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
@@ -63,6 +64,10 @@ async fn main() {
         .serve(app.into_make_service())
         .await
         .expect("Failed to start server");
+}
+
+async fn health() -> &'static str {
+    "OK"
 }
 
 #[axum::debug_handler]
