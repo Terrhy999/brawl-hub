@@ -2,12 +2,12 @@
 
 import { NextResponse } from 'next/server'
 
-export async function GET({ params }: { params: { cardName: string } }) {
+export async function GET(_request: Request, { params }: { params: { cardName: string } }) {
   const { cardName } = params
 
   try {
     // Fetch data from your Rust API
-    const apiResponse = await fetch(`http://192.168.0.238:3030/search/${encodeURIComponent(cardName)}`)
+    const apiResponse = await fetch(`${process.env.INTERNAL_API_URL}/search/${encodeURIComponent(cardName)}`)
 
     // Check if the response is ok
     if (!apiResponse.ok) {
