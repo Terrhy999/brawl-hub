@@ -122,5 +122,5 @@ function useOutsideSearchHandler(ref: any, callback: () => void) {
 }
 
 async function searchCard(cardName: string) {
-  return await fetchJsonFromPublic<SearchResults[]>(`search/${cardName}`)
+  return await fetchJsonFromPublic<SearchResults[]>(`search/${encodeURIComponent(cardName)}`)
 }
