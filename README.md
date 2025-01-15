@@ -1,5 +1,13 @@
-# Brawl-Hub
+# BrawlHub
 
 [Brawlhub.net](https://brawlhub.net)
 
-Brawlhub is a deck analysis tool for Historic Brawl, an arena-only Magic: the Gathering format. Brawlhub analyzes thousands of decklists from popular deck-building websites to provide useful insights to help you build your deck.
+BrawlHub is a comprehensive tool designed for Magic: the Gathering Arena's Brawl format. It allows players to explore all legal commanders for Brawl decks, analyze card synergies, and discover popular trends within the format.
+
+### Features
+
+- Commander Insights: View all legal commanders for Brawl decks, along with their most popular and synergistic cards.
+
+- Deck Analysis: See the most popular cards and commanders for each color combination.
+
+- Dynamic Updates: The database is refreshed weekly to ensure the latest decklists and trends are available.
