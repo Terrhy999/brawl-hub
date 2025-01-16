@@ -2,7 +2,8 @@
 oracle-cards.json
 default-cards.json
 */test.json
-.env
+.env*
+init.sql
 pgdata
 server/query
 */.sqlx
