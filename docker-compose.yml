@@ -7,8 +7,12 @@ services:
     build:
       context: ./frontend # Path to the Next.js project
       dockerfile: Dockerfile # You can skip this line if the Dockerfile is named 'Dockerfile'
+      args:
+        - BUILD_API_URL=http://192.168.0.243:3030
     ports:
       - "3000:3000"
+    environment:
+      INTERNAL_API_URL: http://server:3030
     depends_on:
       server:
         condition: service_healthy
@@ -27,7 +31,7 @@ services:
     ports:
       - "3030:3030"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://server:3030/health"] # Adjust the health check endpoint
+      test: ["CMD", "curl", "-f", "http://localhost:3030/health"] # Adjust the health check endpoint
       interval: 10s
       timeout: 5s
       retries: 5
