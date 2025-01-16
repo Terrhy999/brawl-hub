@@ -35,3 +35,29 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  db:
+    image: postgres:15
+    container_name: "database"
+    restart: always
+    # set shared memory limit when using docker-compose
+    shm_size: 128mb
+    environment:
+      # POSTGRES_USER: ${PGUSER}
+      POSTGRES_PASSWORD: ${PGPASSWORD}
+    # POSTGRES_DB: ${PGDATABASE}
+    volumes:
+      - brawlhub_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - 5432:5432
+
+  adminer:
+    image: adminer
+    container_name: "adminer"
+    restart: always
+    ports:
+      - 8080:8080
+
+volumes:
+  brawlhub_data:
