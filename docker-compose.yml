@@ -4,11 +4,13 @@ services:
   # Next.js service
   frontend:
     container_name: "frontend"
+    profiles:
+      - frontend
     build:
       context: ./frontend # Path to the Next.js project
       dockerfile: Dockerfile # You can skip this line if the Dockerfile is named 'Dockerfile'
       args:
-        - BUILD_API_URL=http://192.168.0.243:3030
+        - BUILD_API_URL=http://192.168.0.242:3030
     ports:
       - "3000:3000"
     environment:
@@ -21,6 +23,8 @@ services:
   # Rust API service
   server:
     container_name: "server"
+    profiles:
+      - backend
     build:
       context: ./server # Path to the Rust project
       dockerfile: Dockerfile
@@ -39,6 +43,8 @@ services:
   db:
     image: postgres:15
     container_name: "database"
+    profiles:
+      - backend
     restart: always
     # set shared memory limit when using docker-compose
     shm_size: 128mb

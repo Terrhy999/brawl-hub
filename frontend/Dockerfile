@@ -4,6 +4,9 @@ FROM node:18 AS builder
 # Set the working directory
 WORKDIR /frontend
 
+ARG BUILD_API_URL
+ENV INTERNAL_API_URL=${BUILD_API_URL}
+
 # Copy package.json and package-lock.json
 COPY package*.json ./
 
