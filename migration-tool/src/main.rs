@@ -21,7 +21,7 @@ async fn main() {
     dotenv().ok();
     let database_url = std::env::var("DATABASE_URL").expect("set DATABASE_URL env variable");
     let pool = PgPoolOptions::new()
-        .max_connections(5)
+        .max_connections(10)
         .connect(&database_url)
         .await
         .expect("couldn't connect to db");
@@ -29,12 +29,12 @@ async fn main() {
     update_default_cards().await;
     migrate_scryfall_alchemy_cards(&pool).await;
     populate_scryfall_id_table(&pool).await;
-    for page in 1..10 {
-        println!("Page {} of Moxfield", page);
-        for deck in get_moxfield_decks(page).await {
-            migrate_moxfield_decklists(&pool, &deck).await;
-        }
-    }
+    // for page in 1..10 {
+    //     println!("Page {} of Moxfield", page);
+    //     for deck in get_moxfield_decks(page).await {
+    //         migrate_moxfield_decklists(&pool, &deck).await;
+    //     }
+    // }
     for decks in 0..10 {
         println!("Decks {} - {} of Aetherhub", decks * 50, (decks + 1) * 50);
         for deck in get_aetherhub_decks(decks * 50, 50).await {
