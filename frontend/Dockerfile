@@ -22,6 +22,9 @@ RUN npm run build
 # Production Stage
 FROM node:18-alpine AS production
 
+# Install curl (needed for healthchecks)
+RUN apk add --no-cache curl
+
 # Set the working directory for the production image
 WORKDIR /frontend
 
