@@ -14,31 +14,6 @@ set -o allexport
 source /home/terrhy999/brawl-hub/.env
 set +o allexport
 
-# Function to trigger Vercel redeploy
-# trigger_vercel_redeploy() {
-#   local vercel_project_id=$VERCEL_PROJECT_ID
-#   local vercel_token=$VERCEL_TOKEN
-
-#   echo "Triggering Vercel redeploy..." >> $LOG_FILE
-  
-#   if [ -z "$vercel_token" ]; then
-#     echo "Vercel API token is not set" >> $LOG_FILE
-#     return 1
-#   fi
-  
-#   response=$(curl -s -o /dev/null -w "%{http_code}" -X POST "https://api.vercel.com/v1/integrations/deploy/prj_6KKjBWm83ZRLFbvQQuG4OMfY1pgW/0aTTecov5b?projectId=$vercel_project_id" \
-#     -H "Authorization: Bearer $vercel_token" \
-#     -H "Content-Type: application/json")
-
-#   echo "Vercel API response code: $response" >> $LOG_FILE
-
-#   if [ "$response" -eq 200 ] || [ "$response" -eq 201 ]; then
-#     echo "Vercel redeploy triggered successfully." >> $LOG_FILE
-#   else
-#     echo "Failed to trigger Vercel redeploy. HTTP response code: $response" >> $LOG_FILE
-#   fi
-# }
-
 # Run the Rust program to update the database
 echo "Running Rust program..." >> $LOG_FILE
 /home/terrhy999/brawl-hub/migration-tool/target/release/brawl_hub_migration_tool >> $LOG_FILE 2>&1
