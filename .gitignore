@@ -10,3 +10,5 @@ server/query
 brawlhub.tar.gz
 NOTES.md
 update_database.log
+.vscode
+deploy.log
