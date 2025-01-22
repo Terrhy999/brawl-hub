@@ -29,25 +29,18 @@ async fn main() {
             .expect("Couldn't connect to db"),
     };
 
-    //Return types:
-    //CardSlug = Card + total_decks, all_decks, rank, total_commander_decks_of_ci
-    //CardCount = Card + count
-    //TopCards = Card + total_decks_with_card, total_decks_could_play, rank
-    //TopCardsForCommander = Card +
-
     let app = Router::new()
         .route("/commander_slugs", get(commander_slugs))
         .route("/card_slugs", get(card_slugs))
-        .route("/card/:slug", get(card_by_slug)) //TopCards
-        .route("/commander/:slug", get(commander_by_slug)) //CardSlug
-        .route("/commanders/", get(top_commanders)) //CardCount
-        .route("/commanders/:colors", get(top_commanders_of_color)) //CardCount
-        .route("/commanders/colorless", get(top_commanders_colorless)) //CardCount
-        .route("/top_cards", get(top_cards)) //TopCards
-        .route("/top_cards/:colors", get(top_cards_of_color)) //TopCards
-        .route("/commander_top_cards/:oracle_id", get(commander_top_cards)) //TopCardsForCommander
+        .route("/card/:slug", get(card_by_slug)) 
+        .route("/commander/:slug", get(commander_by_slug)) 
+        .route("/commanders/", get(top_commanders)) 
+        .route("/commanders/:colors", get(top_commanders_of_color)) 
+        .route("/commanders/colorless", get(top_commanders_colorless)) 
+        .route("/top_cards", get(top_cards)) 
+        .route("/top_cards/:colors", get(top_cards_of_color)) 
+        .route("/commander_top_cards/:oracle_id", get(commander_top_cards)) 
         .route(
-            //TopCards
             "/top_commanders_for_card/:slug",
             get(top_commanders_for_card),
         )
@@ -69,6 +62,7 @@ async fn main() {
 async fn health() -> &'static str {
     "OK"
 }
+
 
 #[axum::debug_handler]
 async fn deck_by_id(
@@ -399,6 +393,8 @@ async fn commander_by_slug(
     Json(res)
 }
 
+
+// Returns slugified names of all legal commanders in the database
 async fn commander_slugs(State(AppState { pool }): State<AppState>) -> Json<Vec<Option<String>>> {
     struct Response {
         slug: Option<String>,
@@ -418,6 +414,7 @@ async fn commander_slugs(State(AppState { pool }): State<AppState>) -> Json<Vec<
     Json(res)
 }
 
+// Returns card info for all colorless commanders ordered by number of decks helmed by that commander
 async fn top_commanders_colorless(
     State(AppState { pool }): State<AppState>,
 ) -> Json<Vec<CardCount>> {
@@ -445,8 +442,6 @@ async fn top_cards_of_color(
     Path(color): Path<String>,
     State(AppState { pool }): State<AppState>,
 ) -> Json<Vec<TopCards>> {
-    // Right now 'num_decks_total' is the number of decks with this EXACT color_identity, it needs to be the number of decks that INCLUDE this color identity
-    // Eg colors = 'U' 'num_decks_total' is the number of mono-blue decks, not the number of decks with 'U' in the color_identity
 
     let mut not_colors = vec![
         "W".to_string(),
