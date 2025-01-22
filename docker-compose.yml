@@ -1,14 +1,8 @@
-version: "3.8"
-
 services:
-  # Next.js service
   frontend:
     container_name: "frontend"
-    profiles:
-      - frontend
     build:
-      context: ./frontend # Path to the Next.js project
-      dockerfile: Dockerfile # You can skip this line if the Dockerfile is named 'Dockerfile'
+      context: ./frontend
       args:
         - BUILD_API_URL=http://192.168.0.242:3030
     ports:
@@ -18,16 +12,16 @@ services:
     depends_on:
       server:
         condition: service_healthy
-    # command: sh -c "until curl -s http://server:3030/health; do echo waiting for rust server; sleep 5; done && npm run build && npm start"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  # Rust API service
   server:
     container_name: "server"
-    profiles:
-      - backend
     build:
-      context: ./server # Path to the Rust project
-      dockerfile: Dockerfile
+      context: ./server
       args:
         DATABASE_URL: ${DATABASE_URL}
     environment:
@@ -35,28 +29,30 @@ services:
     ports:
       - "3030:3030"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3030/health"] # Adjust the health check endpoint
+      test: ["CMD", "curl", "-f", "http://localhost:3030/health"]
       interval: 10s
       timeout: 5s
       retries: 5
+    depends_on:
+      db:
+        condition: service_healthy
 
   db:
     image: postgres:15
     container_name: "database"
-    profiles:
-      - backend
     restart: always
-    # set shared memory limit when using docker-compose
     shm_size: 128mb
     environment:
-      # POSTGRES_USER: ${PGUSER}
       POSTGRES_PASSWORD: ${PGPASSWORD}
-    # POSTGRES_DB: ${PGDATABASE}
     volumes:
       - brawlhub_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
       - 5432:5432
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 5s
+      retries: 5
 
   adminer:
     image: adminer
