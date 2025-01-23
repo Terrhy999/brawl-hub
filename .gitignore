@@ -4,6 +4,7 @@ default-cards.json
 */test.json
 .env*
 init.sql
+brawlhub_dump.sql
 pgdata
 server/query
 */.sqlx

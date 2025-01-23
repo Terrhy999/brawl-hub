@@ -29,12 +29,6 @@ async fn main() {
     update_default_cards().await;
     migrate_scryfall_alchemy_cards(&pool).await;
     populate_scryfall_id_table(&pool).await;
-    // for page in 1..10 {
-    //     println!("Page {} of Moxfield", page);
-    //     for deck in get_moxfield_decks(page).await {
-    //         migrate_moxfield_decklists(&pool, &deck).await;
-    //     }
-    // }
     for decks in 0..10 {
         println!("Decks {} - {} of Aetherhub", decks * 50, (decks + 1) * 50);
         for deck in get_aetherhub_decks(decks * 50, 50).await {
@@ -43,6 +37,130 @@ async fn main() {
     }
     populate_total_decks_per_card_table(&pool).await;
     populate_total_decks_per_color_identity_table(&pool).await;
+}
+
+async fn update_cards_to_english(pool: &Pool<Postgres>) -> Result<(), Box<dyn std::error::Error>> {
+
+    let data = fs::read_to_string("default-cards.json").expect("unable to read JSON");
+    let scryfall_cards: Vec<ScryfallCard> =
+        serde_json::from_str(&data).expect("unable to parse JSON");
+
+    // rarity order: common < uncommon < rare < mythic
+    fn is_lower_rarity(current: &str, new: &str) -> bool {
+        match (current, new) {
+            ("common", _) => false,
+            ("uncommon", "common") => true,
+            ("uncommon", _) => false,
+            ("rare", "common") | ("rare", "uncommon") => true,
+            ("rare", _) => false,
+            ("mythic", "rare") | ("mythic", "uncommon") | ("mythic", "common") => true,
+            _ => false,
+        }
+    }
+
+    let unwanted_layouts = [
+        "token",
+        "flip",
+        "planar",
+        "scheme",
+        "vanguard",
+        "double_faced_token",
+        "emblem",
+        "augment",
+        "host",
+        "art_series",
+        "reversible_card",
+    ];
+
+    let scryfall_cards: Vec<ScryfallCard> = scryfall_cards
+        .into_iter()
+        .filter(|card| {
+            card.games().contains(&String::from("arena"))
+                && !unwanted_layouts.contains(&card.layout().as_str())
+                && card.lang() == "en" // Filter to only English printings
+        })
+        .collect();
+
+    let mut unique_scryfall_cards: HashMap<String, ScryfallCard> = HashMap::new();
+
+    scryfall_cards.into_iter().for_each(|mut card| {
+        card.set_lowest_rarity(card.rarity());
+        if card.rarity() != card.lowest_rarity() {
+            println!("rarities don't match");
+        }
+        let (oracle_id, released_at) = (card.oracle_id(), card.released_at());
+        let new_released_at = released_at;
+
+        unique_scryfall_cards
+            .entry(oracle_id.clone())
+            .and_modify(|existing_card| {
+                if existing_card.released_at() < new_released_at {
+                    *existing_card = card.clone();
+                }
+
+                // Update lowest_rarity if it's empty or the new card has a lower rarity
+                if is_lower_rarity(&existing_card.lowest_rarity(), &card.rarity()) {
+                    existing_card.set_lowest_rarity(card.rarity());
+                }
+            })
+            .or_insert(card);
+    });
+
+    // Get a list of all the alchemy card names, with the 'A-' prefix stripped, and remove cards with that name from the HashMap
+    // println!("Cards: {}", unique_scryfall_cards.len());
+
+    let alchemy_card_names: Vec<String> = unique_scryfall_cards
+        .iter()
+        .filter_map(|(_, card)| {
+            card.is_rebalanced()
+                .then(|| strip_alchemy_prefix(&card.name()))
+        })
+        .collect();
+    unique_scryfall_cards.retain(|_, card| !alchemy_card_names.contains(&card.name().to_string()));
+
+    // Step 1: Fetch all cards from the database
+    let database_cards = sqlx::query_as!(Card,
+        r#"
+        SELECT * FROM card
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    for db_card in database_cards {
+        if let Some(scryfall_card) = unique_scryfall_cards.get(&db_card.oracle_id) {
+            let updated_card: Card = Card::from(scryfall_card.clone());
+
+            // Perform the database update
+            sqlx::query!(
+                r#"
+                UPDATE card
+                SET lang = $1,
+                    rarity = $2,
+                    image_small = $3,
+                    image_normal = $4,
+                    image_large = $5,
+                    image_art_crop = $6,
+                    image_border_crop = $7,
+                    lowest_rarity = $8
+                WHERE oracle_id = $9
+                "#,
+                updated_card.lang,
+                updated_card.rarity,
+                updated_card.image_small,
+                updated_card.image_normal,
+                updated_card.image_large,
+                updated_card.image_art_crop,
+                updated_card.image_border_crop,
+                updated_card.lowest_rarity,
+                Uuid::from_str(&updated_card.oracle_id).expect("uuid from string"),
+            )
+            .execute(pool)
+            .await?;
+        }
+    }
+
+    Ok(())
 }
 
 async fn update_default_cards() -> () {
@@ -259,6 +377,7 @@ async fn migrate_scryfall_alchemy_cards(pool: &Pool<Postgres>) {
         .filter(|card| {
             card.games().contains(&String::from("arena"))
                 && !unwanted_layouts.contains(&card.layout().as_str())
+                && card.lang() == "en" // Filter to only English printings
         })
         .collect();
 
@@ -1577,6 +1696,7 @@ struct Legalities {
 }
 
 trait ScryfallCardProperties {
+    fn lang(&self) -> String;
     fn name(&self) -> String;
     fn oracle_id(&self) -> String;
     fn released_at(&self) -> &NaiveDate;
@@ -1922,9 +2042,42 @@ impl ScryfallCardProperties for ScryfallCard {
             ScryfallCard::Case(normal) => normal.set_lowest_rarity(new_lowest_rarity),
         }
     }
+    
+    fn lang(&self) -> String {
+        match self {
+            ScryfallCard::Normal(normal) => normal.lang(),
+            ScryfallCard::Split(split) => split.lang(),
+            ScryfallCard::Flip(flip) => flip.lang(),
+            ScryfallCard::Transform(transform) => transform.lang(),
+            ScryfallCard::ModalDFC(modal_dfc) => modal_dfc.lang(),
+            ScryfallCard::Meld(meld) => meld.lang(),
+            ScryfallCard::Leveler(normal) => normal.lang(),
+            ScryfallCard::Class(normal) => normal.lang(),
+            ScryfallCard::Saga(normal) => normal.lang(),
+            ScryfallCard::Adventure(adventure) => adventure.lang(),
+            ScryfallCard::Mutate(normal) => normal.lang(),
+            ScryfallCard::Prototype(normal) => normal.lang(),
+            ScryfallCard::Planar(normal) => normal.lang(),
+            ScryfallCard::Scheme(normal) => normal.lang(),
+            ScryfallCard::Vanguard(normal) => normal.lang(),
+            ScryfallCard::Token(normal) => normal.lang(),
+            ScryfallCard::DoubleFacedToken(double_faced_token) => double_faced_token.lang(),
+            ScryfallCard::Emblem(normal) => normal.lang(),
+            ScryfallCard::Augment(normal) => normal.lang(),
+            ScryfallCard::Host(normal) => normal.lang(),
+            ScryfallCard::ArtSeries(art_series) => art_series.lang(),
+            ScryfallCard::ReversibleCard(reversible_card) => reversible_card.lang(),
+            ScryfallCard::Case(normal) => normal.lang(),
+        }
+    }
 }
 
 impl ScryfallCardProperties for Normal {
+
+    fn lang(&self) -> String {
+        self.lang.clone()
+    }
+
     fn set_lowest_rarity(&mut self, new_lowest_rarity: String) {
         self.lowest_rarity = new_lowest_rarity;
     }
@@ -1974,6 +2127,11 @@ impl ScryfallCardProperties for Normal {
     }
 }
 impl ScryfallCardProperties for Split {
+
+    fn lang(&self) -> String {
+        self.lang.clone()
+    }
+
     fn set_lowest_rarity(&mut self, new_lowest_rarity: String) {
         self.lowest_rarity = new_lowest_rarity;
     }
@@ -2022,6 +2180,11 @@ impl ScryfallCardProperties for Split {
     }
 }
 impl ScryfallCardProperties for Flip {
+
+    fn lang(&self) -> String {
+        self.lang.clone()
+    }
+
     fn set_lowest_rarity(&mut self, new_lowest_rarity: String) {
         self.lowest_rarity = new_lowest_rarity;
     }
@@ -2070,6 +2233,11 @@ impl ScryfallCardProperties for Flip {
     }
 }
 impl ScryfallCardProperties for Transform {
+
+    fn lang(&self) -> String {
+        self.lang.clone()
+    }
+
     fn set_lowest_rarity(&mut self, new_lowest_rarity: String) {
         self.lowest_rarity = new_lowest_rarity;
     }
@@ -2118,6 +2286,11 @@ impl ScryfallCardProperties for Transform {
     }
 }
 impl ScryfallCardProperties for ModalDFC {
+
+    fn lang(&self) -> String {
+        self.lang.clone()
+    }
+
     fn set_lowest_rarity(&mut self, new_lowest_rarity: String) {
         self.lowest_rarity = new_lowest_rarity;
     }
@@ -2166,6 +2339,11 @@ impl ScryfallCardProperties for ModalDFC {
     }
 }
 impl ScryfallCardProperties for Meld {
+
+    fn lang(&self) -> String {
+        self.lang.clone()
+    }
+
     fn set_lowest_rarity(&mut self, new_lowest_rarity: String) {
         self.lowest_rarity = new_lowest_rarity;
     }
@@ -2213,6 +2391,11 @@ impl ScryfallCardProperties for Meld {
     }
 }
 impl ScryfallCardProperties for Adventure {
+
+    fn lang(&self) -> String {
+        self.lang.clone()
+    }
+
     fn set_lowest_rarity(&mut self, new_lowest_rarity: String) {
         self.lowest_rarity = new_lowest_rarity;
     }
@@ -2260,6 +2443,11 @@ impl ScryfallCardProperties for Adventure {
     }
 }
 impl ScryfallCardProperties for ArtSeries {
+
+    fn lang(&self) -> String {
+        self.lang.clone()
+    }
+
     fn set_lowest_rarity(&mut self, new_lowest_rarity: String) {
         self.lowest_rarity = new_lowest_rarity;
     }
@@ -2307,6 +2495,11 @@ impl ScryfallCardProperties for ArtSeries {
     }
 }
 impl ScryfallCardProperties for DoubleFacedToken {
+
+    fn lang(&self) -> String {
+        self.lang.clone()
+    }
+
     fn set_lowest_rarity(&mut self, new_lowest_rarity: String) {
         self.lowest_rarity = new_lowest_rarity;
     }
@@ -2354,6 +2547,11 @@ impl ScryfallCardProperties for DoubleFacedToken {
     }
 }
 impl ScryfallCardProperties for ReversibleCard {
+
+    fn lang(&self) -> String {
+        self.lang.clone()
+    }
+
     fn set_lowest_rarity(&mut self, new_lowest_rarity: String) {
         self.lowest_rarity = new_lowest_rarity;
     }
